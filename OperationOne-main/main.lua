@@ -297,6 +297,8 @@ local function setFullbright(state)
     withModule("fullbright", function(m)
         if type(m.setEnabled) == "function" then
             m:setEnabled(state)
+        elseif type(m.toggle) == "function" then
+            m:toggle()
         end
     end)
 end
@@ -307,6 +309,35 @@ local function setFullbrightSetting(key, value)
             m:setSetting(key, value)
         end
     end)
+end
+
+local function applyDefaults()
+    setSilentAim(false)
+    setSilentAimFov(60)
+    setSilentAimSmoothness(1)
+    setSilentAimMode("silent")
+    setSilentAimTargetMode("custom_parts")
+
+    setGunModEnabled(false)
+    setGunModConfig("recoil_reduction", 0)
+    setGunModConfig("horizontal_recoil", 0)
+
+    setEspEnabled(false)
+    setEspTeamCheck(false)
+    setEspPlayers(false)
+    setEspObjects(false)
+    setEspPlayerColor(Color3.fromRGB(210, 50, 80))
+    setEspObjectColor(Color3.fromRGB(0, 255, 255))
+    setEspDroneColor(Color3.fromRGB(0, 255, 255))
+    setEspClaymoreColor(Color3.fromRGB(255, 0, 0))
+
+    setFullbright(false)
+    setFullbrightSetting("Brightness", 1)
+    setFullbrightSetting("ClockTime", 12)
+    setFullbrightSetting("FogEnd", 786543)
+    setFullbrightSetting("GlobalShadows", false)
+    setFullbrightSetting("Ambient", Color3.fromRGB(178, 178, 178))
+
 end
 
 local function loadUiLibrary()
@@ -429,8 +460,8 @@ local function buildAkUi(lib)
 
     window:addSection("Weapon")
     window:addToggle("Gun Mod Enabled", false, setGunModEnabled)
-    window:addSlider("Recoil Reduction", 0, 1, 0, 0.01, function(v) setGunModConfig("recoil_reduction", v) end)
-    window:addSlider("Horizontal Recoil", 0, 1, 0, 0.01, function(v) setGunModConfig("horizontal_recoil", v) end)
+    window:addSlider("Recoil Reduction", 0, 1, 0, 0.1, function(v) setGunModConfig("recoil_reduction", v) end)
+    window:addSlider("Horizontal Recoil", 0, 1, 0, 0.1, function(v) setGunModConfig("horizontal_recoil", v) end)
 
     local visualsTab = window:addTab("Visuals")
     window:switchTab(visualsTab)
@@ -465,6 +496,7 @@ local function buildAkUi(lib)
         setGunModEnabled(false)
     end)
 
+    applyDefaults()
     log("AK UI initialized")
 end
 

@@ -23,7 +23,6 @@ local Module = {
     _circleEnabled = true,
     _fovCircle = nil,
     _circleConn = nil,
-    _assistConn = nil,
 }
 
 function Module:setShared(shared)
@@ -180,7 +179,7 @@ function Module:_installHook()
             return originalLook
         end
 
-        if self._mode ~= "silent" then
+        if self._mode ~= "silent" and self._mode ~= "aim_assist" then
             return originalLook
         end
 
@@ -189,6 +188,16 @@ function Module:_installHook()
             return originalLook
         end
 
+        if self._mode == "aim_assist" then
+            local camera = Workspace.CurrentCamera
+            if camera then
+                local camPos = camera.CFrame.Position
+                local targetCamCFrame = CFrame.lookAt(camPos, target.Position)
+                local alpha = math.clamp(self._smoothness, 0.01, 1)
+                camera.CFrame = camera.CFrame:Lerp(targetCamCFrame, alpha)
+            end
+            return originalLook
+        end
 
         local origin = originalLook.Position
         local targetCFrame = CFrame.lookAt(origin, target.Position)
@@ -197,33 +206,6 @@ function Module:_installHook()
 
     self._hooked = true
     return true
-end
-
-function Module:_ensureAimAssistLoop()
-    if self._assistConn then
-        return
-    end
-
-    self._assistConn = RunService.RenderStepped:Connect(function()
-        if not self._enabled or self._mode ~= "aim_assist" then
-            return
-        end
-
-        local camera = Workspace.CurrentCamera
-        if not camera then
-            return
-        end
-
-        local target = self:_pickAimPart()
-        if not target then
-            return
-        end
-
-        local camPos = camera.CFrame.Position
-        local targetCFrame = CFrame.lookAt(camPos, target.Position)
-        local alpha = math.clamp(self._smoothness, 0.01, 1)
-        camera.CFrame = camera.CFrame:Lerp(targetCFrame, alpha)
-    end)
 end
 
 function Module:init(force)
@@ -237,7 +219,6 @@ function Module:init(force)
     end
 
     self:_ensureFovCircle()
-    self:_ensureAimAssistLoop()
     self._initialized = true
     return true
 end
@@ -343,11 +324,6 @@ function Module:unload()
     if self._circleConn then
         self._circleConn:Disconnect()
         self._circleConn = nil
-    end
-
-    if self._assistConn then
-        self._assistConn:Disconnect()
-        self._assistConn = nil
     end
 
     if self._fovCircle then
