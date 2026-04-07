@@ -1,6 +1,6 @@
 local FLAG_NAME = "DebugRunParallelLuaOnMainThread"
 local MAIN_URL = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/main.lua"
-local REJOIN_MSG = "Rejoin the game."
+local REJOIN_MSG = "REJOIN THE GAME FURRY ASS NIGGA."
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
