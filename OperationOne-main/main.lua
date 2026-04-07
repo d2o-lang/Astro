@@ -1,7 +1,7 @@
 pcall(function() setthreadidentity(8) end)
 
 local UILIB_LOCAL_PATH = "ui_lib.lua"
-local SHARED_RUNTIME_SOURCE = { local_path = "shared_runtime.lua", url = "" }
+local SHARED_RUNTIME_SOURCE = { local_path = "shared_runtime.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/ui_lib.lua" }
 
 local MODULE_SOURCES = {
     fullbright = {
