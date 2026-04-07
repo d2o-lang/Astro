@@ -1,463 +1,323 @@
-local UILIB_URLS = {
-    "https://raw.githubusercontent.com/d2o-lang/Astro/refs/heads/main/OperationOne-main/compx___.luau",
-    "https://raw.githubusercontent.com/4lpaca-pin/CompKiller/refs/heads/main/src/source.luau",
+local cloneref = cloneref or function(obj) return obj end
+local clonefunction = clonefunction or function(fn) return fn end
+local newcclosure = newcclosure or function(fn) return fn end
+
+local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+local UserInputService = cloneref(game:GetService("UserInputService"))
+local Workspace = cloneref(game:GetService("Workspace"))
+local RunService = cloneref(game:GetService("RunService"))
+
+local Module = {
+    _initialized = false,
+    _hooked = false,
+    _enabled = false,
+    _gunModule = nil,
+    _originalGetShootLook = nil,
+    _fovRadius = 60,
+    _targetPlayers = true,
+    _targetGadgets = true,
+    _targetCameras = true,
+    _smoothness = 1,
+    _debug = false,
+    _circleEnabled = true,
+    _fovCircle = nil,
+    _circleConn = nil,
 }
 
-local MODULE_SOURCES = {
-    fullbright = { local_path = "fullbright.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/fullbright.lua" },
-    gun_modification = { local_path = "gun_modification.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/gun_modification.lua" },
-    hitbox = { local_path = "hitbox.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/hitbox.lua" },
-    player_esp_gadgets = { local_path = "player_esp_gadgets.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/player_esp_gadgets.lua" },
-    silent_aim = { local_path = "silent_aim.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/silent_aim.lua" },
+local function cloneCallable(ref)
+    if type(ref) ~= "function" then
+        return ref
+    end
+
+    local okClone, cloned = pcall(clonefunction, ref)
+    if okClone and cloned then
+        return cloned
+    end
+    return ref
+end
+
+local TARGET_PARTS = {
+    "head", "torso", "shoulder1", "shoulder2",
+    "arm1", "arm2", "hip1", "hip2",
+    "leg1", "leg2", "Sleeve", "Glove", "Boot",
 }
 
-local moduleCache = {}
+local function checkPart(camera, part, mousePos, closestPart, closestDistSq, fovRadiusSq)
+    if not part or not part:IsA("BasePart") then
+        return closestPart, closestDistSq
+    end
 
-local function log(msg)
-    print("[OP1] " .. tostring(msg))
+    local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
+    if not onScreen then
+        return closestPart, closestDistSq
+    end
+
+    local dx = screenPos.X - mousePos.X
+    local dy = screenPos.Y - mousePos.Y
+    local distSq = dx * dx + dy * dy
+
+    if distSq <= fovRadiusSq and distSq < closestDistSq then
+        return part, distSq
+    end
+
+    return closestPart, closestDistSq
 end
 
-local function compile(source, chunkName)
-    local compiler = loadstring or load
-    if type(compiler) ~= "function" then
-        return nil, "loadstring/load unavailable"
+function Module:_updateFovCircle()
+    local circle = self._fovCircle
+    if not circle then
+        return
     end
 
-    local okLoad, chunkOrErr = pcall(compiler, source, "@" .. tostring(chunkName))
-    if not okLoad or type(chunkOrErr) ~= "function" then
-        return nil, "compile error: " .. tostring(chunkOrErr)
-    end
-
-    local okRun, resultOrErr = pcall(chunkOrErr)
-    if not okRun then
-        return nil, "runtime error: " .. tostring(resultOrErr)
-    end
-
-    if type(resultOrErr) == "table" then
-        return resultOrErr
-    end
-
-    return { load = function() return true end }
+    local mousePos = UserInputService:GetMouseLocation()
+    circle.Position = Vector2.new(mousePos.X, mousePos.Y)
+    circle.Radius = self._fovRadius
+    circle.Visible = self._circleEnabled and self._enabled
 end
 
-local function readSource(spec)
-    if type(readfile) == "function" and spec.local_path then
-        local okLocal, localData = pcall(readfile, spec.local_path)
-        if okLocal and type(localData) == "string" and localData ~= "" then
-            return localData, "local:" .. spec.local_path
-        end
+function Module:_ensureFovCircle()
+    if self._fovCircle then
+        return
     end
 
-    if spec.url and spec.url ~= "" then
-        local okUrl, remoteData = pcall(function()
-            return game:HttpGet(spec.url)
-        end)
-        if okUrl and type(remoteData) == "string" and remoteData ~= "" then
-            return remoteData, "url:" .. spec.url
-        end
+    if not Drawing or type(Drawing.new) ~= "function" then
+        return
     end
 
-    return nil, "no source available"
+    local circle = Drawing.new("Circle")
+    circle.Visible = false
+    circle.Filled = false
+    circle.Thickness = 1.5
+    circle.Color = Color3.fromRGB(255, 255, 255)
+    circle.Transparency = 0.8
+    circle.NumSides = 64
+    circle.Radius = self._fovRadius
+
+    self._fovCircle = circle
+    self._circleConn = RunService.RenderStepped:Connect(function()
+        self:_updateFovCircle()
+    end)
 end
 
-local function initModule(name, forceReload)
-    local cached = moduleCache[name]
-    if cached and cached.initialized and not forceReload then
-        return cached.module
-    end
-
-    local spec = MODULE_SOURCES[name]
-    if not spec then
-        log("unknown module: " .. tostring(name))
+function Module:_getClosestTarget()
+    local camera = Workspace.CurrentCamera
+    if not camera then
         return nil
     end
 
-    local source, sourceInfo = readSource(spec)
-    if not source then
-        log(name .. " source error -> " .. tostring(sourceInfo))
-        return nil
-    end
+    local closestPart, closestDistSq = nil, math.huge
+    local fovRadiusSq = self._fovRadius * self._fovRadius
+    local mousePos = UserInputService:GetMouseLocation()
 
-    local moduleObj, loadErr = compile(source, name)
-    if not moduleObj then
-        log(name .. " load error -> " .. tostring(loadErr))
-        return nil
-    end
-
-    local okInit, initErr = true, nil
-    if type(moduleObj.load) == "function" then
-        okInit, initErr = moduleObj:load(forceReload == true)
-    elseif type(moduleObj.init) == "function" then
-        okInit, initErr = moduleObj:init(forceReload == true)
-    end
-
-    if okInit == false then
-        log(name .. " init failed -> " .. tostring(initErr))
-        return nil
-    end
-
-    moduleCache[name] = { initialized = true, module = moduleObj }
-    return moduleObj
-end
-
-local function withModule(name, callback)
-    local moduleObj = initModule(name, false)
-    if not moduleObj then
-        return false
-    end
-
-    local ok, result = pcall(callback, moduleObj)
-    if not ok then
-        log(name .. " callback error -> " .. tostring(result))
-        return false
-    end
-
-    return result ~= false
-end
-
-local function setSilentAim(state)
-    withModule("silent_aim", function(m)
-        if type(m.setEnabled) == "function" then
-            local okSet, errSet = m:setEnabled(state)
-            if okSet == false then
-                log("silent aim toggle failed -> " .. tostring(errSet))
+    local viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
+    if self._targetPlayers and viewmodelsFolder then
+        for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
+            if vm:IsA("Model") and vm.Name ~= "LocalViewmodel" and vm.Name == "Viewmodel" then
+                local torso = vm:FindFirstChild("torso")
+                if not torso or torso.Transparency ~= 1 then
+                    for _, partName in ipairs(TARGET_PARTS) do
+                        local part = vm:FindFirstChild(partName)
+                        closestPart, closestDistSq = checkPart(camera, part, mousePos, closestPart, closestDistSq, fovRadiusSq)
+                    end
+                end
             end
         end
-    end)
-end
-
-local function setSilentAimFov(value)
-    withModule("silent_aim", function(m)
-        if type(m.setFov) == "function" then m:setFov(value) end
-    end)
-end
-
-local function setSilentAimSmoothness(value)
-    withModule("silent_aim", function(m)
-        if type(m.setSmoothness) == "function" then m:setSmoothness(value) end
-    end)
-end
-
-local function setSilentAimTargets(players, gadgets, cameras)
-    withModule("silent_aim", function(m)
-        if type(m.setTargeting) == "function" then m:setTargeting(players, gadgets, cameras) end
-    end)
-end
-
-local function setGunModEnabled(state)
-    withModule("gun_modification", function(m)
-        if type(m.setEnabled) == "function" then m:setEnabled(state) end
-    end)
-end
-
-local function setGunModConfig(key, value)
-    withModule("gun_modification", function(m)
-        if type(m.updateConfig) == "function" then
-            m:updateConfig({ [key] = value })
-        elseif type(m.config) == "table" then
-            m.config[key] = value
-        end
-    end)
-end
-
-local function setEspEnabled(state)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setEnabled) == "function" then m:setEnabled(state) end
-    end)
-end
-
-local function setEspTeamCheck(state)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setTeamCheck) == "function" then m:setTeamCheck(state) end
-    end)
-    withModule("hitbox", function(m)
-        if type(m.setTeamCheck) == "function" then m:setTeamCheck(state) end
-    end)
-end
-
-local function setEspPlayers(state)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setPlayerBoxEnabled) == "function" then m:setPlayerBoxEnabled(state) end
-    end)
-end
-
-local function setEspObjects(state)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setObjectBoxEnabled) == "function" then m:setObjectBoxEnabled(state) end
-    end)
-end
-
-local function setEspPlayerColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setPlayerColor) == "function" then m:setPlayerColor(color) end
-    end)
-end
-
-local function setEspObjectColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setObjectColor) == "function" then m:setObjectColor(color) end
-    end)
-end
-
-local function setEspDroneColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setDroneColor) == "function" then m:setDroneColor(color) end
-    end)
-end
-
-local function setEspClaymoreColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setClaymoreColor) == "function" then m:setClaymoreColor(color) end
-    end)
-end
-
-local function setEspProximityAlarmColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setProximityAlarmColor) == "function" then m:setProximityAlarmColor(color) end
-    end)
-end
-
-local function setEspStickyCameraColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setStickyCameraColor) == "function" then m:setStickyCameraColor(color) end
-    end)
-end
-
-local function setHitboxEnabled(state)
-    withModule("hitbox", function(m)
-        if type(m.setEnabled) == "function" then m:setEnabled(state) end
-    end)
-end
-
-local function setHitboxSize(value)
-    withModule("hitbox", function(m)
-        if type(m.setSize) == "function" then m:setSize(value) end
-    end)
-end
-
-local function setHitboxTransparency(value)
-    withModule("hitbox", function(m)
-        if type(m.setTransparency) == "function" then m:setTransparency(value) end
-    end)
-end
-
-local function setHitboxColor(color)
-    withModule("hitbox", function(m)
-        if type(m.setColor) == "function" then m:setColor(color) end
-    end)
-end
-
-local function setFullbright(state)
-    withModule("fullbright", function(m)
-        if type(m.setEnabled) == "function" then
-            m:setEnabled(state)
-        elseif type(m.toggle) == "function" then
-            m:toggle()
-        end
-    end)
-end
-
-local function setFullbrightSetting(key, value)
-    withModule("fullbright", function(m)
-        if type(m.setSetting) == "function" then m:setSetting(key, value) end
-    end)
-end
-
-local function loadUiLibrary()
-    local compiler = loadstring or load
-    if type(compiler) ~= "function" then
-        return nil
     end
 
-    for _, url in ipairs(UILIB_URLS) do
-        local okLib, libOrErr = pcall(function()
-            local source = game:HttpGet(url)
-            local chunk = compiler(source, "@uilib:" .. url)
-            if type(chunk) ~= "function" then
-                error("ui compile returned non-function")
+    if self._targetGadgets then
+        for _, model in ipairs(Workspace:GetChildren()) do
+            if model:IsA("Model") then
+                local targetChild = nil
+                if model.Name == "Drone" then
+                    targetChild = model:FindFirstChild("HumanoidRootPart")
+                elseif model.Name == "Claymore" then
+                    targetChild = model:FindFirstChild("Laser")
+                elseif model.Name == "ProximityAlarm" then
+                    targetChild = model:FindFirstChild("RedDot")
+                elseif model.Name == "StickyCamera" then
+                    targetChild = model:FindFirstChild("Cam")
+                elseif model.Name == "SignalDisruptor" then
+                    targetChild = model:FindFirstChild("Screen")
+                end
+
+                if targetChild then
+                    closestPart, closestDistSq = checkPart(camera, targetChild, mousePos, closestPart, closestDistSq, fovRadiusSq)
+                end
             end
-            return chunk()
-        end)
-
-        if okLib and type(libOrErr) == "table" then
-            log("UI loaded from: " .. url)
-            return libOrErr
         end
     end
 
-    return nil
+    if self._targetCameras then
+        for _, model in ipairs(Workspace:GetChildren()) do
+            if model:IsA("Model") then
+                local folder = model:FindFirstChildWhichIsA("Folder")
+                local defaultCameras = folder and folder:FindFirstChild("DefaultCameras")
+                if defaultCameras then
+                    for _, defaultCam in ipairs(defaultCameras:GetChildren()) do
+                        if defaultCam:IsA("Model") then
+                            local dot = defaultCam:FindFirstChild("Dot")
+                            closestPart, closestDistSq = checkPart(camera, dot, mousePos, closestPart, closestDistSq, fovRadiusSq)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closestPart
 end
 
-local function addColorPickerSafe(section, config)
-    if type(section.AddColorPicker) == "function" then
-        local ok, picker = pcall(function()
-            return section:AddColorPicker(config)
-        end)
-        if ok then
-            return picker
-        end
+function Module:_installHook()
+    if self._hooked then
+        return true
     end
 
-    if type(section.AddOption) == "function" then
-        local okOpt, opt = pcall(function()
-            return section:AddOption()
-        end)
-        if okOpt and type(opt) == "table" and type(opt.AddColorPicker) == "function" then
-            pcall(function()
-                opt:AddColorPicker({
-                    Flag = config.Flag,
-                    Default = config.Default,
-                    Callback = config.Callback,
-                    Transparency = config.Transparency or 0,
-                })
+    local okRequire, gunModuleOrErr = pcall(function()
+        return require(ReplicatedStorage.Modules.Items.Item.Gun)
+    end)
+    if not okRequire or type(gunModuleOrErr) ~= "table" then
+        return false, "gun module require failed: " .. tostring(gunModuleOrErr)
+    end
+
+    self._gunModule = gunModuleOrErr
+    local originalRef = self._gunModule.get_shoot_look
+    if type(originalRef) ~= "function" and type(originalRef) ~= "table" then
+        return false, "get_shoot_look is not callable"
+    end
+    self._originalGetShootLook = cloneCallable(originalRef)
+
+    local checkcaller_safe = checkcaller
+    self._gunModule.get_shoot_look = setmetatable({}, {
+        __call = newcclosure(function(_, weapon)
+            if type(checkcaller_safe) == "function" and checkcaller_safe() then
+                return self._originalGetShootLook(weapon)
+            end
+
+            local okOriginal, originalCFrame = pcall(function()
+                return self._originalGetShootLook(weapon)
             end)
-        end
-    end
-end
-local function buildLibraryUI(lib)
-    local window = lib.new({
-        Name = "Op1NIGGAs",
-        Keybind = "RightShift",
-        Logo = "rbxassetid://120245531583106",
-        Scale = lib.Scale.Window,
-        TextSize = 15,
+            if not okOriginal or typeof(originalCFrame) ~= "CFrame" then
+                return CFrame.new()
+            end
+
+            if not self._enabled then
+                return originalCFrame
+            end
+
+            local okTarget, targetPart = pcall(function()
+                return self:_getClosestTarget()
+            end)
+            if not okTarget or not targetPart then
+                return originalCFrame
+            end
+
+            if self._debug then
+                print("[SilentAim] target:", targetPart:GetFullName())
+            end
+
+            local weaponPos = originalCFrame.Position
+            local direction = (targetPart.Position - weaponPos).Unit
+            local targetCFrame = CFrame.lookAt(weaponPos, weaponPos + direction)
+
+            if self._smoothness < 1 then
+                return originalCFrame:Lerp(targetCFrame, self._smoothness)
+            end
+            return targetCFrame
+        end),
+        __metatable = "locked",
     })
 
-    window:DrawCategory({ Name = "Combat" })
-    local combatTab = window:DrawTab({ Name = "Combat", Icon = "crosshair", Type = "Double" })
-    local aimbotSection = combatTab:DrawSection({ Name = "Aimbot", Position = "left" })
-    local weaponSection = combatTab:DrawSection({ Name = "Weapon", Position = "right" })
-
-    aimbotSection:AddToggle({ Name = "Silent Aim Enabled", Flag = "silent_aim_enabled", Default = false, Callback = setSilentAim })
-    aimbotSection:AddSlider({ Name = "Silent Aim FOV", Flag = "silent_aim_fov", Default = 60, Min = 10, Max = 400, Round = 0, Callback = setSilentAimFov })
-    aimbotSection:AddSlider({ Name = "Silent Smoothness", Flag = "silent_aim_smoothness", Default = 1, Min = 0.01, Max = 1, Round = 2, Callback = setSilentAimSmoothness })
-    aimbotSection:AddToggle({ Name = "Target Players", Flag = "silent_target_players", Default = false, Callback = function(v) setSilentAimTargets(v, nil, nil) end })
-    aimbotSection:AddToggle({ Name = "Target Gadgets", Flag = "silent_target_gadgets", Default = false, Callback = function(v) setSilentAimTargets(nil, v, nil) end })
-    aimbotSection:AddToggle({ Name = "Target Cameras", Flag = "silent_target_cameras", Default = false, Callback = function(v) setSilentAimTargets(nil, nil, v) end })
-
-    weaponSection:AddToggle({ Name = "Gun Mod Enabled", Flag = "gun_mod_enabled", Default = false, Callback = setGunModEnabled })
-    weaponSection:AddSlider({ Name = "Recoil Reduction", Flag = "gun_mod_recoil", Default = 0, Min = 0, Max = 1, Round = 2, Callback = function(v) setGunModConfig("recoil_reduction", v) end })
-    weaponSection:AddSlider({ Name = "Horizontal Recoil", Flag = "gun_mod_hrecoil", Default = 0, Min = 0, Max = 1, Round = 2, Callback = function(v) setGunModConfig("horizontal_recoil", v) end })
-    weaponSection:AddToggle({ Name = "No Spread", Flag = "gun_mod_spread", Default = false, Callback = function(v) setGunModConfig("no_spread", v) end })
-    weaponSection:AddToggle({ Name = "Accuracy", Flag = "gun_mod_accuracy", Default = false, Callback = function(v) setGunModConfig("accuracy", v) end })
-    weaponSection:AddSlider({ Name = "Fire Rate", Flag = "gun_mod_firerate", Default = 1200, Min = 50, Max = 2000, Round = 0, Callback = function(v) setGunModConfig("custom_firerate", v) end })
-    weaponSection:AddSlider({ Name = "Reload Speed", Flag = "gun_mod_reload", Default = 0.1, Min = 0.05, Max = 1, Round = 2, Callback = function(v) setGunModConfig("reload_speed", v) end })
-    weaponSection:AddToggle({ Name = "Force Auto", Flag = "gun_mod_forceauto", Default = false, Callback = function(v) setGunModConfig("force_auto", v) end })
-    weaponSection:AddToggle({ Name = "Instant ADS", Flag = "gun_mod_ads", Default = false, Callback = function(v) setGunModConfig("instant_ads", v) end })
-    weaponSection:AddSlider({ Name = "ADS Speed", Flag = "gun_mod_adsspeed", Default = 0.1, Min = 0.1, Max = 1, Round = 2, Callback = function(v) setGunModConfig("custom_ads_speed", v) end })
-    weaponSection:AddSlider({ Name = "Zoom", Flag = "gun_mod_zoom", Default = 1, Min = 1, Max = 4, Round = 2, Callback = function(v) setGunModConfig("custom_zoom", v) end })
-
-    window:DrawCategory({ Name = "Visuals" })
-    local visualsTab = window:DrawTab({ Name = "Visuals", Icon = "eye", Type = "Double" })
-    local espSection = visualsTab:DrawSection({ Name = "ESP", Position = "left" })
-    local lightingSection = visualsTab:DrawSection({ Name = "Lighting", Position = "right" })
-
-    espSection:AddToggle({ Name = "ESP Enabled", Flag = "esp_enabled", Default = false, Callback = setEspEnabled })
-    espSection:AddToggle({ Name = "ESP Team Check", Flag = "esp_team_check", Default = false, Callback = setEspTeamCheck })
-    espSection:AddToggle({ Name = "Player ESP", Flag = "esp_players", Default = false, Callback = setEspPlayers })
-    espSection:AddToggle({ Name = "Gadget ESP", Flag = "esp_objects", Default = false, Callback = setEspObjects })
-
-    addColorPickerSafe(espSection, { Name = "Player ESP", Flag = "esp_player_color", Default = Color3.fromRGB(210, 50, 80), Callback = setEspPlayerColor })
-    addColorPickerSafe(espSection, { Name = "Gadget ESP", Flag = "esp_object_color", Default = Color3.fromRGB(0, 255, 255), Callback = setEspObjectColor })
-    addColorPickerSafe(espSection, { Name = "Drone", Flag = "esp_drone_color", Default = Color3.fromRGB(0, 255, 255), Callback = setEspDroneColor })
-    addColorPickerSafe(espSection, { Name = "Claymore", Flag = "esp_claymore_color", Default = Color3.fromRGB(255, 0, 0), Callback = setEspClaymoreColor })
-    addColorPickerSafe(espSection, { Name = "Proximity Alarm", Flag = "esp_proximity_alarm_color", Default = Color3.fromRGB(255, 165, 0), Callback = setEspProximityAlarmColor })
-    addColorPickerSafe(espSection, { Name = "Sticky Camera", Flag = "esp_sticky_camera_color", Default = Color3.fromRGB(255, 192, 203), Callback = setEspStickyCameraColor })
-
-    lightingSection:AddToggle({ Name = "Fullbright", Flag = "fullbright_enabled", Default = false, Callback = setFullbright })
-    lightingSection:AddSlider({ Name = "FB Brightness", Flag = "fb_brightness", Default = 1, Min = 0, Max = 5, Round = 2, Callback = function(v) setFullbrightSetting("Brightness", v) end })
-    lightingSection:AddSlider({ Name = "FB ClockTime", Flag = "fb_clocktime", Default = 12, Min = 0, Max = 24, Round = 1, Callback = function(v) setFullbrightSetting("ClockTime", v) end })
-    lightingSection:AddSlider({ Name = "FB FogEnd", Flag = "fb_fogend", Default = 786543, Min = 1000, Max = 1000000, Round = 0, Callback = function(v) setFullbrightSetting("FogEnd", v) end })
-    lightingSection:AddToggle({ Name = "FB GlobalShadows", Flag = "fb_shadows", Default = false, Callback = function(v) setFullbrightSetting("GlobalShadows", v) end })
-    addColorPickerSafe(lightingSection, { Name = "FB Ambient", Flag = "fb_ambient", Default = Color3.fromRGB(178, 178, 178), Callback = function(c) setFullbrightSetting("Ambient", c) end })
-
-    window:DrawCategory({ Name = "Misc" })
-    local miscTab = window:DrawTab({ Name = "Misc", Icon = "settings", Type = "Single" })
-    local hitboxSection = miscTab:DrawSection({ Name = "Hitbox", Position = "left" })
-
-    hitboxSection:AddToggle({ Name = "Hitbox Enabled", Flag = "hitbox_enabled", Default = false, Callback = setHitboxEnabled })
-    hitboxSection:AddSlider({ Name = "Hitbox Size", Flag = "hitbox_size", Default = 5, Min = 1, Max = 10, Round = 1, Callback = setHitboxSize })
-    hitboxSection:AddSlider({ Name = "Hitbox Transparency", Flag = "hitbox_transparency", Default = 0.9, Min = 0, Max = 1, Round = 2, Callback = setHitboxTransparency })
-    addColorPickerSafe(hitboxSection, { Name = "Hitbox Color", Flag = "hitbox_color", Default = Color3.fromRGB(255, 0, 0), Callback = setHitboxColor })
-    window:DrawCategory({ Name = "Config" })
-    local configManager = lib:ConfigManager({ Directory = "Compkiller-UI", Config = "OP1-Loader" })
-    local configTab = window:DrawConfig({ Name = "Config", Icon = "folder", Config = configManager })
-    configTab:Init()
-
-    log("Library UI initialized")
+    self._hooked = true
+    return true
 end
 
-local function buildFallbackUI()
-    local CoreGui = game:GetService("CoreGui")
-    local UserInputService = game:GetService("UserInputService")
-
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "OP1_Fallback_UI"
-    gui.ResetOnSpawn = false
-    gui.Parent = CoreGui
-
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.fromOffset(300, 220)
-    frame.Position = UDim2.fromScale(0.03, 0.2)
-    frame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-    frame.BorderSizePixel = 0
-    frame.Parent = gui
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -12, 0, 28)
-    title.Position = UDim2.fromOffset(8, 6)
-    title.BackgroundTransparency = 1
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 15
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Text = "OP1 Fallback"
-    title.Parent = frame
-
-    local list = Instance.new("UIListLayout")
-    list.Padding = UDim.new(0, 6)
-    list.Parent = frame
-
-    local pad = Instance.new("UIPadding")
-    pad.PaddingTop = UDim.new(0, 40)
-    pad.PaddingLeft = UDim.new(0, 10)
-    pad.PaddingRight = UDim.new(0, 10)
-    pad.PaddingBottom = UDim.new(0, 10)
-    pad.Parent = frame
-
-    local function makeBtn(text, fn)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 0, 30)
-        btn.Text = text
-        btn.Font = Enum.Font.GothamSemibold
-        btn.TextSize = 13
-        btn.TextColor3 = Color3.fromRGB(235, 235, 235)
-        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 46)
-        btn.Parent = frame
-        btn.MouseButton1Click:Connect(fn)
+function Module:init(force)
+    if self._initialized and not force then
+        return true
     end
 
-    makeBtn("Silent Aim ON", function() setSilentAim(true) end)
-    makeBtn("Silent Aim OFF", function() setSilentAim(false) end)
-    makeBtn("ESP ON", function() setEspEnabled(true) end)
-    makeBtn("ESP OFF", function() setEspEnabled(false) end)
-    makeBtn("Fullbright ON", function() setFullbright(true) end)
-    makeBtn("Fullbright OFF", function() setFullbright(false) end)
-
-    UserInputService.InputBegan:Connect(function(input, gpe)
-        if not gpe and input.KeyCode == Enum.KeyCode.RightShift then
-            frame.Visible = not frame.Visible
-        end
-    end)
-end
-
-local lib = loadUiLibrary()
-if lib then
-    local ok, err = pcall(buildLibraryUI, lib)
-    if not ok then
-        log("Library UI build failed -> " .. tostring(err))
-        buildFallbackUI()
+    local okHook, hookErr = self:_installHook()
+    if not okHook then
+        return false, hookErr
     end
-else
-    buildFallbackUI()
+
+    self:_ensureFovCircle()
+    self:_updateFovCircle()
+
+    self._initialized = true
+    return true
 end
+
+function Module:load(force)
+    return self:init(force)
+end
+
+function Module:isLoaded()
+    return self._initialized
+end
+
+function Module:setEnabled(state)
+    local okInit, initErr = self:init(false)
+    if not okInit then
+        return false, initErr
+    end
+
+    self._enabled = state == true
+    self:_updateFovCircle()
+    return true
+end
+
+function Module:setFov(value)
+    if type(value) ~= "number" or value <= 0 then
+        return false, "invalid fov"
+    end
+    self._fovRadius = value
+    self:_updateFovCircle()
+    return true
+end
+
+function Module:setSmoothness(value)
+    if type(value) ~= "number" then
+        return false, "invalid smoothness"
+    end
+    self._smoothness = math.clamp(value, 0.01, 1)
+    return true
+end
+
+function Module:setTargeting(targetPlayers, targetGadgets, targetCameras)
+    if targetPlayers ~= nil then self._targetPlayers = targetPlayers == true end
+    if targetGadgets ~= nil then self._targetGadgets = targetGadgets == true end
+    if targetCameras ~= nil then self._targetCameras = targetCameras == true end
+    return true
+end
+
+function Module:setFovCircleEnabled(state)
+    self._circleEnabled = state == true
+    self:_updateFovCircle()
+    return true
+end
+
+function Module:unload()
+    if self._hooked and self._gunModule and self._originalGetShootLook then
+        self._gunModule.get_shoot_look = self._originalGetShootLook
+    end
+
+    if self._circleConn then
+        self._circleConn:Disconnect()
+        self._circleConn = nil
+    end
+
+    if self._fovCircle then
+        pcall(function()
+            self._fovCircle:Remove()
+        end)
+        self._fovCircle = nil
+    end
+
+    self._hooked = false
+    self._initialized = false
+    self._enabled = false
+    return true
+end
+
+return Module
