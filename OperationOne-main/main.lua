@@ -410,9 +410,9 @@ local function buildAkUi(lib)
 
     local window = lib.new("Op1NIGGAs", Enum.KeyCode.RightShift)
     window._userResized = true
-    window._manualWidth = 600
+    window._manualWidth = 400
     window._manualHeight = 500
-    window.mainFrame.Size = UDim2.new(0, 600, 0, 500)
+    window.mainFrame.Size = UDim2.new(0, 400, 0, 500)
     window:_updateScroll()
 
 
@@ -459,7 +459,7 @@ local function buildAkUi(lib)
     window:addDropdown("Aim Mode", { "silent", "aim_assist" }, "silent", function(selected)
         setSilentAimMode(selected)
     end)
-    window:addDropdown("Aim Assist Activation", { "mb2", "mb1", "always" }, "mb2", function(selected)
+    window:addDropdown("Aim Assist Keybinds", { "mb2", "mb1", "always" }, "mb2", function(selected)
         setAimAssistActivation(selected)
     end)
     window:addDropdown("Target Mode", { "Custom Parts", "Head Only" }, "Custom Parts", function(selected)
@@ -510,17 +510,17 @@ local function buildAkUi(lib)
     end)
 
     applyDefaults()
-    log("AK UI initialized")
+    log("init")
 end
 
 local lib, libErr = loadUiLibrary()
 if lib then
     local ok, err = pcall(buildAkUi, lib)
     if not ok then
-        log("AK UI build failed -> " .. tostring(err))
+        log("failed -> " .. tostring(err))
     end
 else
-    log("AK UI load failed -> " .. tostring(libErr))
+    log("failed -> " .. tostring(libErr))
 end
 
 pcall(function()
