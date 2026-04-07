@@ -18,6 +18,7 @@ local Module = {
     _fovRadius = 60,
     _smoothness = 1,
     _mode = "silent",
+    _assistActivation = "mb2",
     _targetMode = "custom_parts",
     _singleTargetPart = "head",
     _circleEnabled = true,
@@ -59,6 +60,16 @@ local function getPartList(module)
         return TARGET_PARTS
     end
     return { module._singleTargetPart or "head" }
+end
+
+local function isAimAssistActive(module)
+    if module._assistActivation == "always" then
+        return true
+    end
+    if module._assistActivation == "mb1" then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    end
+    return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 end
 
 function Module:_pickAimPart()
@@ -207,6 +218,9 @@ function Module:_ensureAimAssistLoop()
         if not self._enabled or self._mode ~= "aim_assist" then
             return
         end
+        if not isAimAssistActive(self) then
+            return
+        end
 
         local camera = Workspace.CurrentCamera
         if not camera then
@@ -290,6 +304,20 @@ function Module:setMode(mode)
     return true
 end
 
+function Module:setAimAssistActivation(mode)
+    if type(mode) ~= "string" then
+        return false, "invalid aim assist activation"
+    end
+
+    local normalized = string.lower(mode)
+    if normalized ~= "mb1" and normalized ~= "mb2" and normalized ~= "always" then
+        return false, "activation must be mb1, mb2, or always"
+    end
+
+    self._assistActivation = normalized
+    return true
+end
+
 function Module:setTargetMode(mode)
     if type(mode) ~= "string" then
         return false, "invalid target mode"
@@ -360,6 +388,7 @@ function Module:unload()
     self._initialized = false
     self._enabled = false
     self._mode = "silent"
+    self._assistActivation = "mb2"
     return true
 end
 

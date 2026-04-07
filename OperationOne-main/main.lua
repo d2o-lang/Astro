@@ -203,6 +203,14 @@ local function setSilentAimMode(mode)
     end)
 end
 
+local function setAimAssistActivation(mode)
+    withModule("silent_aim", function(m)
+        if type(m.setAimAssistActivation) == "function" then
+            m:setAimAssistActivation(mode)
+        end
+    end)
+end
+
 local function setSilentAimTargetMode(mode)
     withModule("silent_aim", function(m)
         if type(m.setTargetMode) == "function" then
@@ -316,6 +324,7 @@ local function applyDefaults()
     setSilentAimFov(60)
     setSilentAimSmoothness(1)
     setSilentAimMode("silent")
+    setAimAssistActivation("mb2")
     setSilentAimTargetMode("custom_parts")
 
     setGunModEnabled(false)
@@ -450,6 +459,9 @@ local function buildAkUi(lib)
     window:addDropdown("Aim Mode", { "silent", "aim_assist" }, "silent", function(selected)
         setSilentAimMode(selected)
     end)
+    window:addDropdown("Aim Assist Activation", { "mb2", "mb1", "always" }, "mb2", function(selected)
+        setAimAssistActivation(selected)
+    end)
     window:addDropdown("Target Mode", { "Custom Parts", "Head Only" }, "Custom Parts", function(selected)
         if selected == "Head Only" then
             setSilentAimTargetMode("head_only")
@@ -488,6 +500,7 @@ local function buildAkUi(lib)
     local configTab = window:addTab("Config")
     window:switchTab(configTab)
     window:addLabel("CUHHH MAYBE NEXT YEAR")
+    window:switchTab(combatTab)
 
     window:onClose(function()
         setSilentAim(false)
