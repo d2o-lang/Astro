@@ -19,7 +19,7 @@ local Module = {
         force_auto = false,
         instant_ads = false,
         custom_ads_speed = 0.1,
-        custom_zoom = 1.5,
+        custom_zoom = 1,
     },
 }
 

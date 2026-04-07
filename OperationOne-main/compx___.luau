@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     		Compkiller Interface
 
     Author: 4lpaca
@@ -9575,6 +9575,8 @@ function Compkiller.new(Config : Window)
 		local Button = Compkiller:_Input(CloseWindow,function()
 			WindowArgs:_ToggleUI()
 		end)
+
+		Compkiller:Drag(CloseWindow, CloseWindow, 0.1)
 
 		if not Compkiller:_IsMobile() then
 

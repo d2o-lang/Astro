@@ -144,6 +144,12 @@ local function setSilentAimTargets(players, gadgets, cameras)
     end)
 end
 
+local function setSilentAimFovCircle(state)
+    withModule("silent_aim", function(m)
+        if type(m.setFovCircleEnabled) == "function" then m:setFovCircleEnabled(state) end
+    end)
+end
+
 local function setGunModEnabled(state)
     withModule("gun_modification", function(m)
         if type(m.setEnabled) == "function" then m:setEnabled(state) end
@@ -329,6 +335,7 @@ local function buildLibraryUI(lib)
     local weaponSection = combatTab:DrawSection({ Name = "Weapon", Position = "right" })
 
     aimbotSection:AddToggle({ Name = "Silent Aim Enabled", Flag = "silent_aim_enabled", Default = false, Callback = setSilentAim })
+    aimbotSection:AddToggle({ Name = "Show FOV Circle", Flag = "silent_aim_fov_circle", Default = true, Callback = setSilentAimFovCircle })
     aimbotSection:AddSlider({ Name = "Silent Aim FOV", Flag = "silent_aim_fov", Default = 60, Min = 10, Max = 400, Round = 0, Callback = setSilentAimFov })
     aimbotSection:AddSlider({ Name = "Silent Smoothness", Flag = "silent_aim_smoothness", Default = 1, Min = 0.01, Max = 1, Round = 2, Callback = setSilentAimSmoothness })
     aimbotSection:AddToggle({ Name = "Target Players", Flag = "silent_target_players", Default = false, Callback = function(v) setSilentAimTargets(v, nil, nil) end })
