@@ -17,12 +17,13 @@ local Module = {
     _originalGetShootLook = nil,
     _fovRadius = 60,
     _smoothness = 1,
+    _mode = "silent",
     _targetMode = "custom_parts",
     _singleTargetPart = "head",
-    _debug = false,
     _circleEnabled = true,
     _fovCircle = nil,
     _circleConn = nil,
+    _assistConn = nil,
 }
 
 function Module:setShared(shared)
@@ -179,25 +180,50 @@ function Module:_installHook()
             return originalLook
         end
 
+        if self._mode ~= "silent" then
+            return originalLook
+        end
+
         local target = self:_pickAimPart()
         if not target then
             return originalLook
         end
 
-        if self._debug then
-            print("Silent Aim ->", target:GetFullName())
-        end
 
         local origin = originalLook.Position
         local targetCFrame = CFrame.lookAt(origin, target.Position)
-        if self._smoothness < 1 then
-            return originalLook:Lerp(targetCFrame, self._smoothness)
-        end
         return targetCFrame
     end)
 
     self._hooked = true
     return true
+end
+
+function Module:_ensureAimAssistLoop()
+    if self._assistConn then
+        return
+    end
+
+    self._assistConn = RunService.RenderStepped:Connect(function()
+        if not self._enabled or self._mode ~= "aim_assist" then
+            return
+        end
+
+        local camera = Workspace.CurrentCamera
+        if not camera then
+            return
+        end
+
+        local target = self:_pickAimPart()
+        if not target then
+            return
+        end
+
+        local camPos = camera.CFrame.Position
+        local targetCFrame = CFrame.lookAt(camPos, target.Position)
+        local alpha = math.clamp(self._smoothness, 0.01, 1)
+        camera.CFrame = camera.CFrame:Lerp(targetCFrame, alpha)
+    end)
 end
 
 function Module:init(force)
@@ -211,6 +237,7 @@ function Module:init(force)
     end
 
     self:_ensureFovCircle()
+    self:_ensureAimAssistLoop()
     self._initialized = true
     return true
 end
@@ -247,6 +274,20 @@ function Module:setSmoothness(value)
         return false, "invalid smoothness"
     end
     self._smoothness = math.clamp(value, 0.01, 1)
+    return true
+end
+
+function Module:setMode(mode)
+    if type(mode) ~= "string" then
+        return false, "invalid mode"
+    end
+
+    local normalized = string.lower(mode)
+    if normalized ~= "silent" and normalized ~= "aim_assist" then
+        return false, "mode must be silent or aim_assist"
+    end
+
+    self._mode = normalized
     return true
 end
 
@@ -304,6 +345,11 @@ function Module:unload()
         self._circleConn = nil
     end
 
+    if self._assistConn then
+        self._assistConn:Disconnect()
+        self._assistConn = nil
+    end
+
     if self._fovCircle then
         pcall(function()
             self._fovCircle:Remove()
@@ -314,6 +360,7 @@ function Module:unload()
     self._hooked = false
     self._initialized = false
     self._enabled = false
+    self._mode = "silent"
     return true
 end
 

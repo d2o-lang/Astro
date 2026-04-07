@@ -164,7 +164,7 @@ local function sendNotif(title, subtitle, imageId, persistent)
 			Size = UDim2.new(1, -12, 0, 16),
 			Position = UDim2.new(0, 10, 0, 8),
 			BackgroundTransparency = 1,
-			Text = title and ("FURRY KILLER  •  " .. title) or "FURRY KILLER",
+			Text = title and ("FURRY KILLER  -  " .. title) or "FURRY KILLER",
 			TextColor3 = Color3.fromRGB(180, 180, 180),
 			TextSize = 11,
 			Font = Enum.Font.GothamBold,
@@ -357,7 +357,7 @@ function LibClass.new(title, hideKey)
 		Size = UDim2.new(1, -80, 1, 0),
 		Position = UDim2.new(0, 14, 0, 0),
 		BackgroundTransparency = 1,
-		Text = "FURRY KILLER" .. (title and ("  •  " .. title) or ""),
+		Text = "FURRY KILLER" .. (title and ("  -  " .. title) or ""),
 		TextColor3 = Color3.fromRGB(255, 255, 255),
 		TextSize = 13,
 		Font = Enum.Font.GothamBold,
@@ -370,7 +370,7 @@ function LibClass.new(title, hideKey)
 		Position = UDim2.new(1, -52, 0.5, -12),
 		BackgroundColor3 = Color3.fromRGB(30, 30, 30),
 		BackgroundTransparency = 0.4,
-		Text = "—",
+		Text = "-",
 		TextColor3 = Color3.fromRGB(220, 220, 220),
 		TextSize = 11,
 		Font = Enum.Font.GothamBold,
@@ -720,7 +720,7 @@ function LibClass:minimize()
 		end)
 	else
 		self._minimized = false
-		self.minimizeBtn.Text = "—"
+		self.minimizeBtn.Text = "-"
 		self.contentFrame.Visible = true
 		if self._userResized then
 			self:_updateScroll()
@@ -1311,7 +1311,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		Size = UDim2.new(0.5, -8, 0, 24),
 		BackgroundColor3 = Color3.fromRGB(30, 30, 30),
 		BackgroundTransparency = 0.3,
-		Text = tostring(selected) .. " ▾",
+		Text = tostring(selected) .. " v",
 		TextColor3 = Color3.fromRGB(220, 220, 220),
 		TextSize = 11,
 		Font = Enum.Font.Gotham,
@@ -1403,7 +1403,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		end)
 		local c3 = optBtn.MouseButton1Click:Connect(function()
 			selected = value
-			dropBtn.Text = tostring(value) .. " ▾"
+			dropBtn.Text = tostring(value) .. " v"
 			closePanel()
 			if callback then pcall(callback, value) end
 		end)
@@ -1448,7 +1448,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		get = function() return selected end,
 		set = function(v)
 			selected = v
-			dropBtn.Text = tostring(v) .. " ▾"
+			dropBtn.Text = tostring(v) .. " v"
 		end,
 		refresh = function(newOptions)
 			if not newOptions or #newOptions == 0 then
@@ -1984,7 +1984,7 @@ function LibClass:addStatus(name, initialValue)
 		Size = UDim2.new(0.5, 0, 0, 26),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		Text = initialValue or "—",
+		Text = initialValue or "-",
 		TextColor3 = Color3.fromRGB(80, 200, 120),
 		TextSize = 11,
 		Font = Enum.Font.GothamBold,
@@ -2058,7 +2058,7 @@ function LibClass:addPlayerList(labelOrCallback, callback)
 	local countLabel = make("TextLabel", {
 		Size = UDim2.new(1, -58, 1, 0),
 		BackgroundTransparency = 1,
-		Text = "Players  •  " .. #pl:GetPlayers(),
+		Text = "Players  -  " .. #pl:GetPlayers(),
 		TextColor3 = Color3.fromRGB(140, 140, 140),
 		TextSize = 10,
 		Font = Enum.Font.GothamBold,
@@ -2141,7 +2141,7 @@ function LibClass:addPlayerList(labelOrCallback, callback)
 		end
 
 		local players = pl:GetPlayers()
-		countLabel.Text = "Players  •  " .. #players
+		countLabel.Text = "Players  -  " .. #players
 
 		for idx, player in ipairs(players) do
 			local card = make("Frame", {

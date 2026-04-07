@@ -195,6 +195,14 @@ local function setSilentAimSmoothness(value)
     end)
 end
 
+local function setSilentAimMode(mode)
+    withModule("silent_aim", function(m)
+        if type(m.setMode) == "function" then
+            m:setMode(mode)
+        end
+    end)
+end
+
 local function setSilentAimTargetMode(mode)
     withModule("silent_aim", function(m)
         if type(m.setTargetMode) == "function" then
@@ -285,28 +293,10 @@ local function setEspClaymoreColor(color)
     end)
 end
 
-local function setEspProximityAlarmColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setProximityAlarmColor) == "function" then
-            m:setProximityAlarmColor(color)
-        end
-    end)
-end
-
-local function setEspStickyCameraColor(color)
-    withModule("player_esp_gadgets", function(m)
-        if type(m.setStickyCameraColor) == "function" then
-            m:setStickyCameraColor(color)
-        end
-    end)
-end
-
 local function setFullbright(state)
     withModule("fullbright", function(m)
         if type(m.setEnabled) == "function" then
             m:setEnabled(state)
-        elseif type(m.toggle) == "function" then
-            m:toggle()
         end
     end)
 end
@@ -319,36 +309,6 @@ local function setFullbrightSetting(key, value)
     end)
 end
 
-local function applyDefaults()
-    setSilentAim(false)
-    setSilentAimFov(60)
-    setSilentAimSmoothness(1)
-    setSilentAimTargetMode("custom_parts")
-
-    setGunModEnabled(false)
-    setGunModConfig("recoil_reduction", 0)
-    setGunModConfig("horizontal_recoil", 0)
-
-    setEspEnabled(false)
-    setEspTeamCheck(false)
-    setEspPlayers(false)
-    setEspObjects(false)
-    setEspPlayerColor(Color3.fromRGB(210, 50, 80))
-    setEspObjectColor(Color3.fromRGB(0, 255, 255))
-    setEspDroneColor(Color3.fromRGB(0, 255, 255))
-    setEspClaymoreColor(Color3.fromRGB(255, 0, 0))
-    setEspProximityAlarmColor(Color3.fromRGB(255, 165, 0))
-    setEspStickyCameraColor(Color3.fromRGB(255, 192, 203))
-
-    setFullbright(false)
-    setFullbrightSetting("Brightness", 1)
-    setFullbrightSetting("ClockTime", 12)
-    setFullbrightSetting("FogEnd", 786543)
-    setFullbrightSetting("GlobalShadows", false)
-    setFullbrightSetting("Ambient", Color3.fromRGB(178, 178, 178))
-
-end
-
 local function loadUiLibrary()
     local compiler = loadstring or load
     if type(compiler) ~= "function" then
@@ -356,6 +316,11 @@ local function loadUiLibrary()
     end
 
     local function loadUiFromSource(source, sourceLabel)
+        source = tostring(source)
+        source = source:gsub("â€¢", "-"):gsub("•", "-")
+        source = source:gsub("â€”", "-"):gsub("—", "-")
+        source = source:gsub("â–¾", "v"):gsub("▾", "v")
+
         local okLib, libOrErr = pcall(function()
             local chunk = compiler(source, "@uilib:" .. tostring(sourceLabel))
             if type(chunk) ~= "function" then
@@ -404,6 +369,12 @@ local function buildAkUi(lib)
     end
 
     local window = lib.new("Op1NIGGAs", Enum.KeyCode.RightShift)
+    window._userResized = true
+    window._manualWidth = 600
+    window._manualHeight = 500
+    window.mainFrame.Size = UDim2.new(0, 600, 0, 500)
+    window:_updateScroll()
+
 
     local presetColors = {
         Red = Color3.fromRGB(255, 0, 0),
@@ -445,6 +416,9 @@ local function buildAkUi(lib)
     window:addToggle("Silent Aim Enabled", false, setSilentAim)
     window:addSlider("Silent Aim FOV", 10, 400, 60, 1, setSilentAimFov)
     window:addSlider("Silent Smoothness", 0.01, 1, 1, 0.01, setSilentAimSmoothness)
+    window:addDropdown("Aim Mode", { "silent", "aim_assist" }, "silent", function(selected)
+        setSilentAimMode(selected)
+    end)
     window:addDropdown("Target Mode", { "Custom Parts", "Head Only" }, "Custom Parts", function(selected)
         if selected == "Head Only" then
             setSilentAimTargetMode("head_only")
@@ -469,8 +443,6 @@ local function buildAkUi(lib)
     addPresetColorDropdown("Gadget ESP Color", Color3.fromRGB(0, 255, 255), setEspObjectColor)
     addPresetColorDropdown("Drone Color", Color3.fromRGB(0, 255, 255), setEspDroneColor)
     addPresetColorDropdown("Claymore Color", Color3.fromRGB(255, 0, 0), setEspClaymoreColor)
-    addPresetColorDropdown("Proximity Alarm Color", Color3.fromRGB(255, 165, 0), setEspProximityAlarmColor)
-    addPresetColorDropdown("Sticky Camera Color", Color3.fromRGB(255, 192, 203), setEspStickyCameraColor)
 
     window:addSection("Lighting")
     window:addToggle("Fullbright", false, setFullbright)
@@ -484,9 +456,7 @@ local function buildAkUi(lib)
 
     local configTab = window:addTab("Config")
     window:switchTab(configTab)
-    window:addLabel("AKLIB active.")
-    window:addLabel("This entry script uses AKLIB only.")
-    window:addLabel("No built-in config manager in this local AKLIB file.")
+    window:addLabel("CUHHH MAYBE NEXT YEAR")
 
     window:onClose(function()
         setSilentAim(false)
@@ -495,7 +465,6 @@ local function buildAkUi(lib)
         setGunModEnabled(false)
     end)
 
-    applyDefaults()
     log("AK UI initialized")
 end
 

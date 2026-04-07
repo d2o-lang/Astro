@@ -11,8 +11,6 @@ local Module = {
     _playerColor = Color3.fromRGB(210, 50, 80),
     _droneColor = Color3.fromRGB(0, 255, 255),
     _claymoreColor = Color3.fromRGB(255, 0, 0),
-    _proximityAlarmColor = Color3.fromRGB(255, 165, 0),
-    _stickyCameraColor = Color3.fromRGB(255, 192, 203),
     _playerBoxes = {},
     _objectBoxes = {},
     _connections = {},
@@ -57,10 +55,6 @@ function Module:_getObjectColor(name)
         return self._droneColor
     elseif name == "Claymore" then
         return self._claymoreColor
-    elseif name == "ProximityAlarm" then
-        return self._proximityAlarmColor
-    elseif name == "StickyCamera" then
-        return self._stickyCameraColor
     end
     return nil
 end
@@ -447,8 +441,6 @@ function Module:setObjectColor(color)
     end
     self._droneColor = color
     self._claymoreColor = color
-    self._proximityAlarmColor = color
-    self._stickyCameraColor = color
     for _, data in pairs(self._objectBoxes) do
         data.box.Color = color
     end
@@ -469,24 +461,6 @@ function Module:setClaymoreColor(color)
     self._claymoreColor = color
     for model, data in pairs(self._objectBoxes) do
         if model.Name == "Claymore" then data.box.Color = color end
-    end
-    return true
-end
-
-function Module:setProximityAlarmColor(color)
-    if typeof(color) ~= "Color3" then return false, "invalid color" end
-    self._proximityAlarmColor = color
-    for model, data in pairs(self._objectBoxes) do
-        if model.Name == "ProximityAlarm" then data.box.Color = color end
-    end
-    return true
-end
-
-function Module:setStickyCameraColor(color)
-    if typeof(color) ~= "Color3" then return false, "invalid color" end
-    self._stickyCameraColor = color
-    for model, data in pairs(self._objectBoxes) do
-        if model.Name == "StickyCamera" then data.box.Color = color end
     end
     return true
 end
