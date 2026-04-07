@@ -1,7 +1,13 @@
 pcall(function() setthreadidentity(8) end)
 
 local UILIB_LOCAL_PATH = "ui_lib.lua"
-local SHARED_RUNTIME_SOURCE = { local_path = "shared_runtime.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/ui_lib.lua" }
+local UILIB_URL = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/ui_lib.lua"
+local UILIB_LOCAL_PATHS = {
+    UILIB_LOCAL_PATH,
+    "OperationOne-main/ui_lib.lua",
+    "OperationOne-main\\ui_lib.lua",
+}
+local SHARED_RUNTIME_SOURCE = { local_path = "shared_runtime.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/shared_runtime.lua" }
 
 local MODULE_SOURCES = {
     fullbright = {
@@ -189,6 +195,14 @@ local function setSilentAimSmoothness(value)
     end)
 end
 
+local function setSilentAimTargetMode(mode)
+    withModule("silent_aim", function(m)
+        if type(m.setTargetMode) == "function" then
+            m:setTargetMode(mode)
+        end
+    end)
+end
+
 local function setGunModEnabled(state)
     withModule("gun_modification", function(m)
         if type(m.setEnabled) == "function" then
@@ -309,6 +323,7 @@ local function applyDefaults()
     setSilentAim(false)
     setSilentAimFov(60)
     setSilentAimSmoothness(1)
+    setSilentAimTargetMode("custom_parts")
 
     setGunModEnabled(false)
     setGunModConfig("recoil_reduction", 0)
@@ -340,25 +355,47 @@ local function loadUiLibrary()
         return nil, "loadstring/load unavailable"
     end
 
-    if type(readfile) == "function" then
-        local okRead, source = pcall(readfile, UILIB_LOCAL_PATH)
-        if okRead and type(source) == "string" and source ~= "" then
-            local okLib, libOrErr = pcall(function()
-                local chunk = compiler(source, "@uilib_local:" .. UILIB_LOCAL_PATH)
-                if type(chunk) ~= "function" then
-                    error("ui local compile returned non-function")
-                end
-                return chunk()
-            end)
-            if okLib and type(libOrErr) == "table" then
-                log("UI loaded from local file: " .. UILIB_LOCAL_PATH)
-                return libOrErr
+    local function loadUiFromSource(source, sourceLabel)
+        local okLib, libOrErr = pcall(function()
+            local chunk = compiler(source, "@uilib:" .. tostring(sourceLabel))
+            if type(chunk) ~= "function" then
+                error("ui compile returned non-function")
             end
-            return nil, tostring(libOrErr)
+            return chunk()
+        end)
+        if okLib and type(libOrErr) == "table" then
+            return libOrErr
+        end
+        return nil, tostring(libOrErr)
+    end
+
+    if type(readfile) == "function" then
+        for _, localPath in ipairs(UILIB_LOCAL_PATHS) do
+            local okRead, source = pcall(readfile, localPath)
+            if okRead and type(source) == "string" and source ~= "" then
+                local lib, err = loadUiFromSource(source, "local:" .. localPath)
+                if lib then
+                    log("UI loaded from local file: " .. localPath)
+                    return lib
+                end
+                log("UI local load failed (" .. tostring(localPath) .. ") -> " .. tostring(err))
+            end
         end
     end
 
-    return nil, "local ui file missing: " .. UILIB_LOCAL_PATH
+    local okHttp, httpSource = pcall(function()
+        return game:HttpGet(UILIB_URL)
+    end)
+    if okHttp and type(httpSource) == "string" and httpSource ~= "" then
+        local lib, err = loadUiFromSource(httpSource, "url:" .. UILIB_URL)
+        if lib then
+            log("UI loaded from url: " .. UILIB_URL)
+            return lib
+        end
+        return nil, "ui url compile/runtime error: " .. tostring(err)
+    end
+
+    return nil, "local ui file missing (" .. UILIB_LOCAL_PATH .. ") and url fetch failed: " .. UILIB_URL
 end
 
 local function buildAkUi(lib)
@@ -408,6 +445,13 @@ local function buildAkUi(lib)
     window:addToggle("Silent Aim Enabled", false, setSilentAim)
     window:addSlider("Silent Aim FOV", 10, 400, 60, 1, setSilentAimFov)
     window:addSlider("Silent Smoothness", 0.01, 1, 1, 0.01, setSilentAimSmoothness)
+    window:addDropdown("Target Mode", { "Custom Parts", "Head Only" }, "Custom Parts", function(selected)
+        if selected == "Head Only" then
+            setSilentAimTargetMode("head_only")
+        else
+            setSilentAimTargetMode("custom_parts")
+        end
+    end)
 
     window:addSection("Weapon")
     window:addToggle("Gun Mod Enabled", false, setGunModEnabled)

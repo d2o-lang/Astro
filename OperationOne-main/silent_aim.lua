@@ -18,6 +18,7 @@ local Module = {
     _fovRadius = 60,
     _smoothness = 1,
     _targetMode = "custom_parts",
+    _singleTargetPart = "head",
     _debug = false,
     _circleEnabled = true,
     _fovCircle = nil,
@@ -52,11 +53,11 @@ local function cloneCallable(ref)
     return ref
 end
 
-local function getPartList(targetMode)
-    if targetMode == "head_only" then
-        return { "head" }
+local function getPartList(module)
+    if module._targetMode == "custom_parts" then
+        return TARGET_PARTS
     end
-    return TARGET_PARTS
+    return { module._singleTargetPart or "head" }
 end
 
 function Module:_pickAimPart()
@@ -84,7 +85,7 @@ function Module:_pickAimPart()
             continue
         end
 
-        for _, name in ipairs(getPartList(self._targetMode)) do
+        for _, name in ipairs(getPartList(self)) do
             local part = vm:FindFirstChild(name)
             if not part or not part:IsA("BasePart") then
                 continue
@@ -249,9 +250,39 @@ function Module:setSmoothness(value)
     return true
 end
 
+function Module:setTargetMode(mode)
+    if type(mode) ~= "string" then
+        return false, "invalid target mode"
+    end
+
+    local normalized = string.lower(mode)
+    if normalized == "custom_parts" or normalized == "custom" then
+        self._targetMode = "custom_parts"
+        return true
+    end
+
+    if normalized == "head_only" or normalized == "head" then
+        self._targetMode = "single_part"
+        self._singleTargetPart = "head"
+        return true
+    end
+
+    return false, "unknown target mode"
+end
+
+function Module:setTargetPart(partName)
+    if type(partName) ~= "string" or partName == "" then
+        return false, "invalid target part"
+    end
+
+    self._targetMode = "single_part"
+    self._singleTargetPart = string.lower(partName)
+    return true
+end
+
 function Module:setTargeting(players, gadgets, cameras)
     -- Kept for compatibility with previous UI signatures.
-    if players == true and (gadgets == false or cameras == false) then
+    if players == true and gadgets == false and cameras == false then
         self._targetMode = "custom_parts"
     end
     return true
