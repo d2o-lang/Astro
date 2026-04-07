@@ -1,66 +1,112 @@
-local cloneref = cloneref or function(obj) return obj end
-local clonefunction = clonefunction or function(fn) return fn end
-local newcclosure = newcclosure or function(fn) return fn end
-
 local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 local Workspace = cloneref(game:GetService("Workspace"))
 local RunService = cloneref(game:GetService("RunService"))
 
+local TARGET_PARTS = {
+    "head", "torso", "shoulder1", "shoulder2",
+    "arm1", "arm2", "hip1", "hip2", "leg1", "leg2",
+}
+
 local Module = {
+    shared = nil,
     _initialized = false,
     _hooked = false,
     _enabled = false,
     _gunModule = nil,
     _originalGetShootLook = nil,
     _fovRadius = 60,
-    _targetPlayers = false,
-    _targetGadgets = false,
-    _targetCameras = false,
     _smoothness = 1,
+    _targetMode = "custom_parts",
     _debug = false,
     _circleEnabled = true,
     _fovCircle = nil,
     _circleConn = nil,
 }
 
+function Module:setShared(shared)
+    if type(shared) ~= "table" then
+        return false, "shared must be table"
+    end
+
+    self.shared = shared
+    if type(shared.applyToEnv) == "function" then
+        shared:applyToEnv()
+    end
+
+    ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+    UserInputService = cloneref(game:GetService("UserInputService"))
+    Workspace = cloneref(game:GetService("Workspace"))
+    RunService = cloneref(game:GetService("RunService"))
+    return true
+end
+
 local function cloneCallable(ref)
     if type(ref) ~= "function" then
         return ref
     end
-
-    local okClone, cloned = pcall(clonefunction, ref)
-    if okClone and cloned then
+    local ok, cloned = pcall(clonefunction, ref)
+    if ok and cloned then
         return cloned
     end
     return ref
 end
 
-local TARGET_PARTS = {
-    "head", "torso", "shoulder1", "shoulder2",
-    "arm1", "arm2", "hip1", "hip2",
-    "leg1", "leg2", "Sleeve", "Glove", "Boot",
-}
+local function getPartList(targetMode)
+    if targetMode == "head_only" then
+        return { "head" }
+    end
+    return TARGET_PARTS
+end
 
-local function checkPart(camera, part, mousePos, closestPart, closestDistSq, fovRadiusSq)
-    if not part or not part:IsA("BasePart") then
-        return closestPart, closestDistSq
+function Module:_pickAimPart()
+    local camera = Workspace.CurrentCamera
+    if not camera then
+        return nil
     end
 
-    local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
-    if not onScreen then
-        return closestPart, closestDistSq
+    local viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
+    if not viewmodelsFolder then
+        return nil
     end
 
-    local dx = screenPos.X - mousePos.X
-    local dy = screenPos.Y - mousePos.Y
-    local distSq = dx * dx + dy * dy
+    local best, best_d2 = nil, math.huge
+    local mouse = UserInputService:GetMouseLocation()
+    local radius_sq = self._fovRadius * self._fovRadius
 
-    if distSq <= fovRadiusSq and distSq < closestDistSq then
-        return part, distSq
+    for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
+        if vm.Name == "LocalViewmodel" or vm.Name ~= "Viewmodel" then
+            continue
+        end
+
+        local torso = vm:FindFirstChild("torso")
+        if torso and torso.Transparency == 1 then
+            continue
+        end
+
+        for _, name in ipairs(getPartList(self._targetMode)) do
+            local part = vm:FindFirstChild(name)
+            if not part or not part:IsA("BasePart") then
+                continue
+            end
+
+            local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
+            if not onScreen then
+                continue
+            end
+
+            local dx = screenPos.X - mouse.X
+            local dy = screenPos.Y - mouse.Y
+            local d2 = dx * dx + dy * dy
+
+            if d2 <= radius_sq and d2 < best_d2 then
+                best = part
+                best_d2 = d2
+            end
+        end
     end
 
-    return closestPart, closestDistSq
+    return best
 end
 
 function Module:_updateFovCircle()
@@ -69,18 +115,19 @@ function Module:_updateFovCircle()
         return
     end
 
-    local mousePos = UserInputService:GetMouseLocation()
-    circle.Position = Vector2.new(mousePos.X, mousePos.Y)
+    local mp = UserInputService:GetMouseLocation()
+    circle.Position = Vector2.new(mp.X, mp.Y)
     circle.Radius = self._fovRadius
-    circle.Visible = self._circleEnabled and self._enabled
+    circle.Visible = self._enabled and self._circleEnabled
 end
 
 function Module:_ensureFovCircle()
     if self._fovCircle then
+        self:_updateFovCircle()
         return
     end
 
-    if not Drawing or type(Drawing.new) ~= "function" then
+    if not (Drawing and Drawing.new) then
         return
     end
 
@@ -89,82 +136,14 @@ function Module:_ensureFovCircle()
     circle.Filled = false
     circle.Thickness = 1.5
     circle.Color = Color3.fromRGB(255, 255, 255)
-    circle.Transparency = 0.8
+    circle.Transparency = 0.7
     circle.NumSides = 64
     circle.Radius = self._fovRadius
-
     self._fovCircle = circle
+
     self._circleConn = RunService.RenderStepped:Connect(function()
         self:_updateFovCircle()
     end)
-end
-
-function Module:_getClosestTarget()
-    local camera = Workspace.CurrentCamera
-    if not camera then
-        return nil
-    end
-
-    local closestPart, closestDistSq = nil, math.huge
-    local fovRadiusSq = self._fovRadius * self._fovRadius
-    local mousePos = UserInputService:GetMouseLocation()
-
-    local viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
-    if self._targetPlayers and viewmodelsFolder then
-        for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
-            if vm:IsA("Model") and vm.Name ~= "LocalViewmodel" and vm.Name == "Viewmodel" then
-                local torso = vm:FindFirstChild("torso")
-                if not torso or torso.Transparency ~= 1 then
-                    for _, partName in ipairs(TARGET_PARTS) do
-                        local part = vm:FindFirstChild(partName)
-                        closestPart, closestDistSq = checkPart(camera, part, mousePos, closestPart, closestDistSq, fovRadiusSq)
-                    end
-                end
-            end
-        end
-    end
-
-    if self._targetGadgets then
-        for _, model in ipairs(Workspace:GetChildren()) do
-            if model:IsA("Model") then
-                local targetChild = nil
-                if model.Name == "Drone" then
-                    targetChild = model:FindFirstChild("HumanoidRootPart")
-                elseif model.Name == "Claymore" then
-                    targetChild = model:FindFirstChild("Laser")
-                elseif model.Name == "ProximityAlarm" then
-                    targetChild = model:FindFirstChild("RedDot")
-                elseif model.Name == "StickyCamera" then
-                    targetChild = model:FindFirstChild("Cam")
-                elseif model.Name == "SignalDisruptor" then
-                    targetChild = model:FindFirstChild("Screen")
-                end
-
-                if targetChild then
-                    closestPart, closestDistSq = checkPart(camera, targetChild, mousePos, closestPart, closestDistSq, fovRadiusSq)
-                end
-            end
-        end
-    end
-
-    if self._targetCameras then
-        for _, model in ipairs(Workspace:GetChildren()) do
-            if model:IsA("Model") then
-                local folder = model:FindFirstChildWhichIsA("Folder")
-                local defaultCameras = folder and folder:FindFirstChild("DefaultCameras")
-                if defaultCameras then
-                    for _, defaultCam in ipairs(defaultCameras:GetChildren()) do
-                        if defaultCam:IsA("Model") then
-                            local dot = defaultCam:FindFirstChild("Dot")
-                            closestPart, closestDistSq = checkPart(camera, dot, mousePos, closestPart, closestDistSq, fovRadiusSq)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return closestPart
 end
 
 function Module:_installHook()
@@ -180,52 +159,41 @@ function Module:_installHook()
     end
 
     self._gunModule = gunModuleOrErr
-    local originalRef = self._gunModule.get_shoot_look
-    if type(originalRef) ~= "function" and type(originalRef) ~= "table" then
-        return false, "get_shoot_look is not callable"
+    self._originalGetShootLook = cloneCallable(self._gunModule.get_shoot_look)
+    if type(self._originalGetShootLook) ~= "function" then
+        return false, "get_shoot_look not callable"
     end
-    self._originalGetShootLook = cloneCallable(originalRef)
 
-    local checkcaller_safe = checkcaller
-    self._gunModule.get_shoot_look = setmetatable({}, {
-        __call = newcclosure(function(_, weapon)
-            if type(checkcaller_safe) == "function" and checkcaller_safe() then
-                return self._originalGetShootLook(weapon)
-            end
+    self._gunModule.get_shoot_look = newcclosure(function(weapon)
+        if checkcaller_safe() then
+            return self._originalGetShootLook(weapon)
+        end
 
-            local okOriginal, originalCFrame = pcall(function()
-                return self._originalGetShootLook(weapon)
-            end)
-            if not okOriginal or typeof(originalCFrame) ~= "CFrame" then
-                return CFrame.new()
-            end
+        local okOriginal, originalLook = pcall(self._originalGetShootLook, weapon)
+        if not okOriginal or typeof(originalLook) ~= "CFrame" then
+            return CFrame.new()
+        end
 
-            if not self._enabled then
-                return originalCFrame
-            end
+        if not self._enabled then
+            return originalLook
+        end
 
-            local okTarget, targetPart = pcall(function()
-                return self:_getClosestTarget()
-            end)
-            if not okTarget or not targetPart then
-                return originalCFrame
-            end
+        local target = self:_pickAimPart()
+        if not target then
+            return originalLook
+        end
 
-            if self._debug then
-                print("[SilentAim] target:", targetPart:GetFullName())
-            end
+        if self._debug then
+            print("Silent Aim ->", target:GetFullName())
+        end
 
-            local weaponPos = originalCFrame.Position
-            local direction = (targetPart.Position - weaponPos).Unit
-            local targetCFrame = CFrame.lookAt(weaponPos, weaponPos + direction)
-
-            if self._smoothness < 1 then
-                return originalCFrame:Lerp(targetCFrame, self._smoothness)
-            end
-            return targetCFrame
-        end),
-        __metatable = "locked",
-    })
+        local origin = originalLook.Position
+        local targetCFrame = CFrame.lookAt(origin, target.Position)
+        if self._smoothness < 1 then
+            return originalLook:Lerp(targetCFrame, self._smoothness)
+        end
+        return targetCFrame
+    end)
 
     self._hooked = true
     return true
@@ -242,8 +210,6 @@ function Module:init(force)
     end
 
     self:_ensureFovCircle()
-    self:_updateFovCircle()
-
     self._initialized = true
     return true
 end
@@ -261,7 +227,6 @@ function Module:setEnabled(state)
     if not okInit then
         return false, initErr
     end
-
     self._enabled = state == true
     self:_updateFovCircle()
     return true
@@ -284,10 +249,11 @@ function Module:setSmoothness(value)
     return true
 end
 
-function Module:setTargeting(targetPlayers, targetGadgets, targetCameras)
-    if targetPlayers ~= nil then self._targetPlayers = targetPlayers == true end
-    if targetGadgets ~= nil then self._targetGadgets = targetGadgets == true end
-    if targetCameras ~= nil then self._targetCameras = targetCameras == true end
+function Module:setTargeting(players, gadgets, cameras)
+    -- Kept for compatibility with previous UI signatures.
+    if players == true and (gadgets == false or cameras == false) then
+        self._targetMode = "custom_parts"
+    end
     return true
 end
 

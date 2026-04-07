@@ -2,6 +2,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Module = {
+    shared = nil,
     _initialized = false,
     _enabled = false,
     _teamCheck = false,
@@ -20,6 +21,25 @@ local Module = {
     _lastCache = 0,
     _cacheInterval = 0.7,
 }
+
+function Module:setShared(shared)
+    if type(shared) ~= "table" then
+        return false, "shared must be table"
+    end
+
+    self.shared = shared
+
+    local ref = shared.cloneref
+    if type(ref) ~= "function" then
+        ref = shared.ref
+    end
+    if type(ref) == "function" then
+        RunService = ref(game:GetService("RunService"))
+        Workspace = ref(game:GetService("Workspace"))
+    end
+
+    return true
+end
 
 local function disconnectAll(connections)
     for _, conn in ipairs(connections) do

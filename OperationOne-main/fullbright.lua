@@ -1,6 +1,7 @@
 local Lighting = game:GetService("Lighting")
 
 local Module = {
+    shared = nil,
     _initialized = false,
     _enabled = false,
     _connections = {},
@@ -13,6 +14,24 @@ local Module = {
         Ambient = Color3.fromRGB(178, 178, 178),
     },
 }
+
+function Module:setShared(shared)
+    if type(shared) ~= "table" then
+        return false, "shared must be table"
+    end
+
+    self.shared = shared
+
+    local ref = shared.cloneref
+    if type(ref) ~= "function" then
+        ref = shared.ref
+    end
+    if type(ref) == "function" then
+        Lighting = ref(game:GetService("Lighting"))
+    end
+
+    return true
+end
 
 local function disconnectAll(connections)
     for _, conn in ipairs(connections) do
