@@ -1,14 +1,14 @@
 local UILIB_URLS = {
-    "https://raw.githubusercontent.com/suannelson123/UiLib/main/source.luau",
+    "https://raw.githubusercontent.com/d2o-lang/Astro/refs/heads/main/OperationOne-main/compx___.luau",
     "https://raw.githubusercontent.com/4lpaca-pin/CompKiller/refs/heads/main/src/source.luau",
 }
 
 local MODULE_SOURCES = {
-    fullbright = { local_path = "fullbright.lua", url = "https://raw.githubusercontent.com/suannelson123/Op1Nibbler/main/fullbright.lua" },
-    gun_modification = { local_path = "gun_modification.lua", url = "https://raw.githubusercontent.com/suannelson123/Op1Nibbler/main/gun_modification.lua" },
-    hitbox = { local_path = "hitbox.lua", url = "https://raw.githubusercontent.com/suannelson123/Op1Nibbler/main/hitbox.lua" },
-    player_esp_gadgets = { local_path = "player_esp_gadgets.lua", url = "https://raw.githubusercontent.com/suannelson123/Op1Nibbler/main/player_esp_gadgets.lua" },
-    silent_aim = { local_path = "silent_aim.lua", url = "https://raw.githubusercontent.com/suannelson123/Op1Nibbler/main/silent_aim.lua" },
+    fullbright = { local_path = "fullbright.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/fullbright.lua" },
+    gun_modification = { local_path = "gun_modification.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/gun_modification.lua" },
+    hitbox = { local_path = "hitbox.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/hitbox.lua" },
+    player_esp_gadgets = { local_path = "player_esp_gadgets.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/player_esp_gadgets.lua" },
+    silent_aim = { local_path = "silent_aim.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/silent_aim.lua" },
 }
 
 local moduleCache = {}
