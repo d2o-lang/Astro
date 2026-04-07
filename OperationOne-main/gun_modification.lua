@@ -9,16 +9,16 @@ local Module = {
     _enabled = false,
     _gunModule = nil,
     _original = {},
-    _originalAutomatic = nil,
     config = {
         recoil_reduction = 0,
         horizontal_recoil = 0,
         no_spread = false,
-        accuracy_multiplier = 1,
+        accuracy = false,
         custom_firerate = 1200,
         reload_speed = 0.1,
         force_auto = false,
         instant_ads = false,
+        custom_ads_speed = 0.1,
         custom_zoom = 1.5,
     },
 }
@@ -42,63 +42,15 @@ function Module:_cloneCallable(ref)
     return ref
 end
 
-function Module:_setAutomaticValue(target, value)
-    if target == nil then
-        return nil
-    end
-
-    if type(target) == "boolean" then
-        return value
-    end
-
-    if type(target) == "table" then
-        if type(target.set) == "function" then
-            pcall(function() target:set(value) end)
-        end
-        if target.Value ~= nil then
-            pcall(function() target.Value = value end)
-        end
-        return nil
-    end
-
-    return nil
-end
-
-function Module:_applyForceAutoToGun(gun, value)
-    if not gun then
-        return
-    end
-
-    if gun.automatic ~= nil then
-        local replacement = self:_setAutomaticValue(gun.automatic, value)
-        if replacement ~= nil then
-            gun.automatic = replacement
-        end
-    end
-
-    if gun.states and gun.states.automatic ~= nil then
-        local replacement = self:_setAutomaticValue(gun.states.automatic, value)
-        if replacement ~= nil then
-            gun.states.automatic = replacement
-        end
-    end
-end
-
-function Module:_applyForceAutoToModule(value)
+function Module:_applyForceAutoToModule()
     if not self._gunModule then
         return
     end
 
-    if self._gunModule.automatic ~= nil then
-        local replacement = self:_setAutomaticValue(self._gunModule.automatic, value)
-        if replacement ~= nil then
-            self._gunModule.automatic = replacement
-        else
-            pcall(function()
-                self._gunModule.automatic = value
-            end)
-        end
-    end
+    local forceValue = self._enabled and self.config.force_auto
+    pcall(function()
+        self._gunModule.automatic = forceValue == true
+    end)
 end
 
 function Module:_buildMetatables()
@@ -124,7 +76,8 @@ function Module:_buildMetatables()
     end
 
     local function ads_get()
-        return self.config.instant_ads and 0.01 or 0.3
+        local adsSpeed = math.clamp(self.config.custom_ads_speed or 0.1, 0.1, 1)
+        return self.config.instant_ads and adsSpeed or 0.3
     end
 
     local function zoom_get()
@@ -242,17 +195,12 @@ function Module:_installHooks()
     self._original.reload_begin = self:_cloneCallable(self._gunModule.reload_begin)
     self._original.sights = self:_cloneCallable(self._gunModule.sights)
     self._original.update_sight_lens = self:_cloneCallable(self._gunModule.update_sight_lens)
-    self._originalAutomatic = self._gunModule.automatic
 
     self:_buildMetatables()
 
     self._gunModule.recoil_function = newcclosure(function(gun, owner)
         if not gun or not gun.states then
             return callOriginal(self._original.recoil_function, gun, owner)
-        end
-
-        if self.config.force_auto then
-            self:_applyForceAutoToGun(gun, true)
         end
 
         local real_states = gun.states
@@ -269,16 +217,14 @@ function Module:_installHooks()
             return callOriginal(self._original.send_shoot, gun)
         end
 
-        if self.config.force_auto then
-            self:_applyForceAutoToGun(gun, true)
-        end
-
         local real_states = gun.states
         local real_accuracy = gun.accuracy
         local proxy_states = { __real_states = real_states }
         setmetatable(proxy_states, spread_firerate_proxy_mt)
         gun.states = proxy_states
-        gun.accuracy = { Value = self.config.accuracy_multiplier }
+        if self.config.accuracy then
+            gun.accuracy = { Value = 1 }
+        end
         local out = callOriginal(self._original.send_shoot, gun)
         gun.states = real_states
         gun.accuracy = real_accuracy
@@ -288,10 +234,6 @@ function Module:_installHooks()
     self._gunModule.input_render = newcclosure(function(gun, ...)
         if not gun or not gun.states then
             return callOriginal(self._original.input_render, gun, ...)
-        end
-
-        if self.config.force_auto then
-            self:_applyForceAutoToGun(gun, true)
         end
 
         local real_states = gun.states
@@ -308,10 +250,6 @@ function Module:_installHooks()
             return callOriginal(self._original.reload_begin, gun, ...)
         end
 
-        if self.config.force_auto then
-            self:_applyForceAutoToGun(gun, true)
-        end
-
         local real_states = gun.states
         local proxy_states = { __real_states = real_states }
         setmetatable(proxy_states, reload_proxy_mt)
@@ -326,10 +264,6 @@ function Module:_installHooks()
             return callOriginal(self._original.sights, gun, ...)
         end
 
-        if self.config.force_auto then
-            self:_applyForceAutoToGun(gun, true)
-        end
-
         local real_states = gun.states
         local proxy_states = { __real_states = real_states }
         setmetatable(proxy_states, sights_proxy_mt)
@@ -342,10 +276,6 @@ function Module:_installHooks()
     self._gunModule.update_sight_lens = newcclosure(function(gun, ...)
         if not gun or not gun.states then
             return callOriginal(self._original.update_sight_lens, gun, ...)
-        end
-
-        if self.config.force_auto then
-            self:_applyForceAutoToGun(gun, true)
         end
 
         local real_states = gun.states
@@ -371,9 +301,7 @@ function Module:init(force)
     end
 
     self._initialized = true
-    if self.config.force_auto then
-        self:_applyForceAutoToModule(true)
-    end
+    self:_applyForceAutoToModule()
     return true
 end
 
@@ -392,11 +320,7 @@ function Module:setEnabled(state)
     end
 
     self._enabled = state == true
-    if self._enabled and self.config.force_auto then
-        self:_applyForceAutoToModule(true)
-    elseif not self._enabled and self._originalAutomatic ~= nil then
-        self:_applyForceAutoToModule(self._originalAutomatic)
-    end
+    self:_applyForceAutoToModule()
     return true
 end
 
@@ -411,12 +335,10 @@ function Module:updateConfig(newConfig)
         end
     end
 
+    self.config.custom_ads_speed = math.clamp(tonumber(self.config.custom_ads_speed) or 0.1, 0.1, 1)
+
     if self._initialized and self._gunModule then
-        if self.config.force_auto and self._enabled then
-            self:_applyForceAutoToModule(true)
-        elseif self._originalAutomatic ~= nil and (not self._enabled or not self.config.force_auto) then
-            self:_applyForceAutoToModule(self._originalAutomatic)
-        end
+        self:_applyForceAutoToModule()
     end
 
     return true
@@ -437,7 +359,10 @@ function Module:unload()
     if self._original.reload_begin then self._gunModule.reload_begin = self._original.reload_begin end
     if self._original.sights then self._gunModule.sights = self._original.sights end
     if self._original.update_sight_lens then self._gunModule.update_sight_lens = self._original.update_sight_lens end
-    if self._originalAutomatic ~= nil then self:_applyForceAutoToModule(self._originalAutomatic) end
+
+    pcall(function()
+        self._gunModule.automatic = false
+    end)
 
     self._initialized = false
     self._enabled = false

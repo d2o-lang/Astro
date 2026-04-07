@@ -5,6 +5,7 @@ local newcclosure = newcclosure or function(fn) return fn end
 local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 local Workspace = cloneref(game:GetService("Workspace"))
+local RunService = cloneref(game:GetService("RunService"))
 
 local Module = {
     _initialized = false,
@@ -18,6 +19,9 @@ local Module = {
     _targetCameras = true,
     _smoothness = 1,
     _debug = false,
+    _circleEnabled = true,
+    _fovCircle = nil,
+    _circleConn = nil,
 }
 
 local function cloneCallable(ref)
@@ -57,6 +61,42 @@ local function checkPart(camera, part, mousePos, closestPart, closestDistSq, fov
     end
 
     return closestPart, closestDistSq
+end
+
+function Module:_updateFovCircle()
+    local circle = self._fovCircle
+    if not circle then
+        return
+    end
+
+    local mousePos = UserInputService:GetMouseLocation()
+    circle.Position = Vector2.new(mousePos.X, mousePos.Y)
+    circle.Radius = self._fovRadius
+    circle.Visible = self._circleEnabled and self._enabled
+end
+
+function Module:_ensureFovCircle()
+    if self._fovCircle then
+        return
+    end
+
+    if not Drawing or type(Drawing.new) ~= "function" then
+        return
+    end
+
+    local circle = Drawing.new("Circle")
+    circle.Visible = false
+    circle.Filled = false
+    circle.Thickness = 1.5
+    circle.Color = Color3.fromRGB(255, 255, 255)
+    circle.Transparency = 0.8
+    circle.NumSides = 64
+    circle.Radius = self._fovRadius
+
+    self._fovCircle = circle
+    self._circleConn = RunService.RenderStepped:Connect(function()
+        self:_updateFovCircle()
+    end)
 end
 
 function Module:_getClosestTarget()
@@ -201,6 +241,9 @@ function Module:init(force)
         return false, hookErr
     end
 
+    self:_ensureFovCircle()
+    self:_updateFovCircle()
+
     self._initialized = true
     return true
 end
@@ -220,6 +263,7 @@ function Module:setEnabled(state)
     end
 
     self._enabled = state == true
+    self:_updateFovCircle()
     return true
 end
 
@@ -228,6 +272,7 @@ function Module:setFov(value)
         return false, "invalid fov"
     end
     self._fovRadius = value
+    self:_updateFovCircle()
     return true
 end
 
@@ -246,9 +291,27 @@ function Module:setTargeting(targetPlayers, targetGadgets, targetCameras)
     return true
 end
 
+function Module:setFovCircleEnabled(state)
+    self._circleEnabled = state == true
+    self:_updateFovCircle()
+    return true
+end
+
 function Module:unload()
     if self._hooked and self._gunModule and self._originalGetShootLook then
         self._gunModule.get_shoot_look = self._originalGetShootLook
+    end
+
+    if self._circleConn then
+        self._circleConn:Disconnect()
+        self._circleConn = nil
+    end
+
+    if self._fovCircle then
+        pcall(function()
+            self._fovCircle:Remove()
+        end)
+        self._fovCircle = nil
     end
 
     self._hooked = false
