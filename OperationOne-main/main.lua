@@ -285,6 +285,14 @@ local function setEspPlayerColor(color)
     end)
 end
 
+local function setEspSkeletonColor(color)
+    withModule("player_esp_gadgets", function(m)
+        if type(m.setSkeletonColor) == "function" then
+            m:setSkeletonColor(color)
+        end
+    end)
+end
+
 local function setEspObjectColor(color)
     withModule("player_esp_gadgets", function(m)
         if type(m.setObjectColor) == "function" then
@@ -345,6 +353,7 @@ local function applyDefaults()
     setEspSkeleton(false)
     setEspObjects(false)
     setEspPlayerColor(Color3.fromRGB(210, 50, 80))
+    setEspSkeletonColor(Color3.fromRGB(210, 50, 80))
     setEspObjectColor(Color3.fromRGB(0, 255, 255))
     setEspDroneColor(Color3.fromRGB(0, 255, 255))
     setEspClaymoreColor(Color3.fromRGB(255, 0, 0))
@@ -489,10 +498,11 @@ local function buildAkUi(lib)
     window:addSection("ESP")
     window:addToggle("ESP Enabled", false, setEspEnabled)
     window:addToggle("ESP Team Check", false, setEspTeamCheck)
-    window:addToggle("Player ESP", false, setEspPlayers)
+    window:addToggle("Box ESP", false, setEspPlayers)
     window:addToggle("Skeleton ESP", false, setEspSkeleton)
     window:addToggle("Gadget ESP", false, setEspObjects)
     addPresetColorDropdown("Player ESP Color", Color3.fromRGB(210, 50, 80), setEspPlayerColor)
+    addPresetColorDropdown("Skeleton Color", Color3.fromRGB(210, 50, 80), setEspSkeletonColor)
     addPresetColorDropdown("Gadget ESP Color", Color3.fromRGB(0, 255, 255), setEspObjectColor)
     addPresetColorDropdown("Drone Color", Color3.fromRGB(0, 255, 255), setEspDroneColor)
     addPresetColorDropdown("Claymore Color", Color3.fromRGB(255, 0, 0), setEspClaymoreColor)
