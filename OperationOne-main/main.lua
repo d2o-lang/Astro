@@ -261,6 +261,14 @@ local function setEspPlayers(state)
     end)
 end
 
+local function setEspSkeleton(state)
+    withModule("player_esp_gadgets", function(m)
+        if type(m.setSkeletonEnabled) == "function" then
+            m:setSkeletonEnabled(state)
+        end
+    end)
+end
+
 local function setEspObjects(state)
     withModule("player_esp_gadgets", function(m)
         if type(m.setObjectBoxEnabled) == "function" then
@@ -334,6 +342,7 @@ local function applyDefaults()
     setEspEnabled(false)
     setEspTeamCheck(false)
     setEspPlayers(false)
+    setEspSkeleton(false)
     setEspObjects(false)
     setEspPlayerColor(Color3.fromRGB(210, 50, 80))
     setEspObjectColor(Color3.fromRGB(0, 255, 255))
@@ -481,6 +490,7 @@ local function buildAkUi(lib)
     window:addToggle("ESP Enabled", false, setEspEnabled)
     window:addToggle("ESP Team Check", false, setEspTeamCheck)
     window:addToggle("Player ESP", false, setEspPlayers)
+    window:addToggle("Skeleton ESP", false, setEspSkeleton)
     window:addToggle("Gadget ESP", false, setEspObjects)
     addPresetColorDropdown("Player ESP Color", Color3.fromRGB(210, 50, 80), setEspPlayerColor)
     addPresetColorDropdown("Gadget ESP Color", Color3.fromRGB(0, 255, 255), setEspObjectColor)
