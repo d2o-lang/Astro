@@ -1018,11 +1018,39 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 	local range = max - min
 	local steps = math.round(range / step)
 	local correctedMax = min + steps * step
+	local stepStr = tostring(step)
+	local dotPos = string.find(stepStr, "%.")
+	local decimals = dotPos and (#stepStr - dotPos) or 0
+
+	local function normalizeValue(val)
+		if decimals <= 0 then
+			return math.round(val)
+		end
+		local ok, formatted = pcall(string.format, "%." .. tostring(decimals) .. "f", val)
+		if ok and formatted then
+			local asNum = tonumber(formatted)
+			if asNum then
+				return asNum
+			end
+		end
+		return val
+	end
+
+	local function formatValue(val)
+		if decimals <= 0 then
+			return tostring(math.round(val))
+		end
+		local ok, formatted = pcall(string.format, "%." .. tostring(decimals) .. "f", val)
+		if ok and formatted then
+			return formatted
+		end
+		return tostring(val)
+	end
 
 	local parent, _, layoutOrder = self:_getTarget()
 	local row = makeRow(parent, layoutOrder)
 	local current = math.clamp(default or min, min, correctedMax)
-	current = min + math.round((current - min) / step) * step
+	current = normalizeValue(min + math.round((current - min) / step) * step)
 
 	local inner = make("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
@@ -1064,7 +1092,7 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 		Size = UDim2.new(0, 55, 1, 0),
 		Position = UDim2.new(1, -55, 0, 0),
 		BackgroundTransparency = 1,
-		Text = tostring(current),
+		Text = formatValue(current),
 		TextColor3 = Color3.fromRGB(160, 160, 160),
 		TextSize = 11,
 		Font = Enum.Font.Gotham,
@@ -1118,7 +1146,7 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 
 	local function snapValue(raw)
 		local stepped = min + math.round((raw - min) / step) * step
-		return math.clamp(stepped, min, correctedMax)
+		return normalizeValue(math.clamp(stepped, min, correctedMax))
 	end
 
 	local function applyValue(x)
@@ -1129,7 +1157,7 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 		local p = getProgress(snapped)
 		fill.Size = UDim2.new(p, 0, 1, 0)
 		knob.Position = UDim2.new(p, 0, 0.5, 0)
-		valueLabel.Text = tostring(snapped)
+		valueLabel.Text = formatValue(snapped)
 		if callback then pcall(callback, snapped) end
 	end
 
@@ -1174,7 +1202,7 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 			local p = getProgress(current)
 			fill.Size = UDim2.new(p, 0, 1, 0)
 			knob.Position = UDim2.new(p, 0, 0.5, 0)
-			valueLabel.Text = tostring(current)
+			valueLabel.Text = formatValue(current)
 		end,
 		get = function()
 			return current
