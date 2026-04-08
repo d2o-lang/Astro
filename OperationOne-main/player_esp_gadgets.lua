@@ -10,6 +10,7 @@ local Module = {
     _skeletonEnabled = false,
     _objectBoxEnabled = false,
     _playerColor = Color3.fromRGB(210, 50, 80),
+    _skeletonColor = Color3.fromRGB(210, 50, 80),
     _droneColor = Color3.fromRGB(0, 255, 255),
     _claymoreColor = Color3.fromRGB(255, 0, 0),
     _playerBoxes = {},
@@ -260,7 +261,7 @@ function Module:_createPlayerBox(model)
     }
 
     for i = 1, #SKELETON_CONNECTIONS do
-        data.skeletonLines[i] = self:_newLine(self._playerColor, 1.5, 1, 2)
+        data.skeletonLines[i] = self:_newLine(self._skeletonColor, 1.5, 1, 2)
     end
 
     for _, segment in ipairs(SKELETON_CONNECTIONS) do
@@ -404,7 +405,7 @@ function Module:_renderStep()
                                 if aOn and bOn then
                                     line.From = Vector2.new(a2D.X, a2D.Y)
                                     line.To = Vector2.new(b2D.X, b2D.Y)
-                                    line.Color = self._playerColor
+                                    line.Color = self._skeletonColor
                                     line.Visible = true
                                 else
                                     line.Visible = false
@@ -542,6 +543,16 @@ function Module:setPlayerColor(color)
     self._playerColor = color
     for _, data in pairs(self._playerBoxes) do
         data.box.Color = color
+    end
+    return true
+end
+
+function Module:setSkeletonColor(color)
+    if typeof(color) ~= "Color3" then
+        return false, "invalid color"
+    end
+    self._skeletonColor = color
+    for _, data in pairs(self._playerBoxes) do
         if data.skeletonLines then
             for _, line in ipairs(data.skeletonLines) do
                 line.Color = color
