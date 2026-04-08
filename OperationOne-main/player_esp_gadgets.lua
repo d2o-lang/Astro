@@ -7,6 +7,7 @@ local Module = {
     _enabled = false,
     _teamCheck = false,
     _playerBoxEnabled = false,
+    _skeletonEnabled = false,
     _objectBoxEnabled = false,
     _playerColor = Color3.fromRGB(210, 50, 80),
     _droneColor = Color3.fromRGB(0, 255, 255),
@@ -49,6 +50,18 @@ end
 local function getCamera()
     return Workspace.CurrentCamera
 end
+
+local SKELETON_CONNECTIONS = {
+    { "head", "torso" },
+    { "torso", "shoulder1" },
+    { "shoulder1", "arm1" },
+    { "torso", "shoulder2" },
+    { "shoulder2", "arm2" },
+    { "torso", "hip1" },
+    { "hip1", "leg1" },
+    { "torso", "hip2" },
+    { "hip2", "leg2" },
+}
 
 function Module:_getObjectColor(name)
     if name == "Drone" then
@@ -113,6 +126,16 @@ function Module:_newBox(color, thickness, transparency, zindex)
     box.Transparency = transparency
     box.ZIndex = zindex
     return box
+end
+
+function Module:_newLine(color, thickness, transparency, zindex)
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.Color = color
+    line.Thickness = thickness
+    line.Transparency = transparency
+    line.ZIndex = zindex
+    return line
 end
 
 function Module:_getObjectBox2D(model)
@@ -201,6 +224,11 @@ function Module:_cleanupPlayerBox(model)
     if data.headConn then data.headConn:Disconnect() end
     if data.torsoConn then data.torsoConn:Disconnect() end
     if data.box then data.box:Remove() end
+    if data.skeletonLines then
+        for _, line in ipairs(data.skeletonLines) do
+            if line then line:Remove() end
+        end
+    end
     self._playerBoxes[model] = nil
 end
 
@@ -227,7 +255,23 @@ function Module:_createPlayerBox(model)
         head = head,
         torso = torso,
         isVisible = torso.Transparency <= 0.95,
+        skeletonLines = {},
+        skeletonParts = {},
     }
+
+    for i = 1, #SKELETON_CONNECTIONS do
+        data.skeletonLines[i] = self:_newLine(self._playerColor, 1.5, 1, 2)
+    end
+
+    for _, segment in ipairs(SKELETON_CONNECTIONS) do
+        local aName, bName = segment[1], segment[2]
+        if data.skeletonParts[aName] == nil then
+            data.skeletonParts[aName] = model:FindFirstChild(aName)
+        end
+        if data.skeletonParts[bName] == nil then
+            data.skeletonParts[bName] = model:FindFirstChild(bName)
+        end
+    end
 
     data.headConn = head:GetPropertyChangedSignal("Transparency"):Connect(function()
         local cached = self._playerBoxes[model]
@@ -306,7 +350,14 @@ end
 
 function Module:_renderStep()
     if not self._enabled then
-        for _, data in pairs(self._playerBoxes) do data.box.Visible = false end
+        for _, data in pairs(self._playerBoxes) do
+            data.box.Visible = false
+            if data.skeletonLines then
+                for _, line in ipairs(data.skeletonLines) do
+                    line.Visible = false
+                end
+            end
+        end
         for _, data in pairs(self._objectBoxes) do data.box.Visible = false end
         return
     end
@@ -315,25 +366,70 @@ function Module:_renderStep()
         self:_updateTeamCache()
     end
 
-    if self._playerBoxEnabled then
+    if self._playerBoxEnabled or self._skeletonEnabled then
+        local camera = getCamera()
         for model, data in pairs(self._playerBoxes) do
             if not model:IsDescendantOf(Workspace) then
                 self:_cleanupPlayerBox(model)
             elseif self:_isTeammate(model) then
                 data.box.Visible = false
+                if data.skeletonLines then
+                    for _, line in ipairs(data.skeletonLines) do
+                        line.Visible = false
+                    end
+                end
             else
-                local pos, size = self:_getPlayerBox2D(data)
-                if pos and size then
-                    data.box.Position = pos
-                    data.box.Size = size
-                    data.box.Visible = true
+                if self._playerBoxEnabled then
+                    local pos, size = self:_getPlayerBox2D(data)
+                    if pos and size then
+                        data.box.Position = pos
+                        data.box.Size = size
+                        data.box.Visible = true
+                    else
+                        data.box.Visible = false
+                    end
                 else
                     data.box.Visible = false
+                end
+
+                if self._skeletonEnabled and data.isVisible and camera then
+                    for i, segment in ipairs(SKELETON_CONNECTIONS) do
+                        local line = data.skeletonLines and data.skeletonLines[i]
+                        if line then
+                            local partA = data.skeletonParts and data.skeletonParts[segment[1]]
+                            local partB = data.skeletonParts and data.skeletonParts[segment[2]]
+                            if partA and partB and partA:IsA("BasePart") and partB:IsA("BasePart") then
+                                local a2D, aOn = camera:WorldToViewportPoint(partA.Position)
+                                local b2D, bOn = camera:WorldToViewportPoint(partB.Position)
+                                if aOn and bOn then
+                                    line.From = Vector2.new(a2D.X, a2D.Y)
+                                    line.To = Vector2.new(b2D.X, b2D.Y)
+                                    line.Color = self._playerColor
+                                    line.Visible = true
+                                else
+                                    line.Visible = false
+                                end
+                            else
+                                line.Visible = false
+                            end
+                        end
+                    end
+                elseif data.skeletonLines then
+                    for _, line in ipairs(data.skeletonLines) do
+                        line.Visible = false
+                    end
                 end
             end
         end
     else
-        for _, data in pairs(self._playerBoxes) do data.box.Visible = false end
+        for _, data in pairs(self._playerBoxes) do
+            data.box.Visible = false
+            if data.skeletonLines then
+                for _, line in ipairs(data.skeletonLines) do
+                    line.Visible = false
+                end
+            end
+        end
     end
 
     if self._objectBoxEnabled then
@@ -368,6 +464,7 @@ function Module:init(force)
     self._enabled = false
     self._teamCheck = false
     self._playerBoxEnabled = false
+    self._skeletonEnabled = false
     self._objectBoxEnabled = false
 
     self:_updateTeamCache()
@@ -416,6 +513,20 @@ function Module:setPlayerBoxEnabled(state)
     return true
 end
 
+function Module:setSkeletonEnabled(state)
+    self._skeletonEnabled = state == true
+    if not self._skeletonEnabled then
+        for _, data in pairs(self._playerBoxes) do
+            if data.skeletonLines then
+                for _, line in ipairs(data.skeletonLines) do
+                    line.Visible = false
+                end
+            end
+        end
+    end
+    return true
+end
+
 function Module:setObjectBoxEnabled(state)
     self._objectBoxEnabled = state == true
     if not self._objectBoxEnabled then
@@ -431,6 +542,11 @@ function Module:setPlayerColor(color)
     self._playerColor = color
     for _, data in pairs(self._playerBoxes) do
         data.box.Color = color
+        if data.skeletonLines then
+            for _, line in ipairs(data.skeletonLines) do
+                line.Color = color
+            end
+        end
     end
     return true
 end
