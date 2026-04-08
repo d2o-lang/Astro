@@ -1339,7 +1339,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		Size = UDim2.new(0.5, -8, 0, 24),
 		BackgroundColor3 = Color3.fromRGB(30, 30, 30),
 		BackgroundTransparency = 0.3,
-		Text = tostring(selected) .. " v",
+		Text = tostring(selected),
 		TextColor3 = Color3.fromRGB(220, 220, 220),
 		TextSize = 11,
 		Font = Enum.Font.Gotham,
@@ -1431,7 +1431,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		end)
 		local c3 = optBtn.MouseButton1Click:Connect(function()
 			selected = value
-			dropBtn.Text = tostring(value) .. " v"
+			dropBtn.Text = tostring(value)
 			closePanel()
 			if callback then pcall(callback, value) end
 		end)
@@ -1476,7 +1476,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		get = function() return selected end,
 		set = function(v)
 			selected = v
-			dropBtn.Text = tostring(v) .. " v"
+			dropBtn.Text = tostring(v)
 		end,
 		refresh = function(newOptions)
 			if not newOptions or #newOptions == 0 then
