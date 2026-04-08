@@ -349,7 +349,6 @@ function Module:setTargetPart(partName)
 end
 
 function Module:setTargeting(players, gadgets, cameras)
-    -- Kept for compatibility with previous UI signatures.
     if players == true and gadgets == false and cameras == false then
         self._targetMode = "custom_parts"
     end
