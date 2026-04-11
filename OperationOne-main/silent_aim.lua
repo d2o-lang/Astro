@@ -7,19 +7,20 @@ local Module = {
     _initialized = false,
     _enabled = false,
     _mode = "silent",
-    _aimAssistActivation = "mb2",
     _targetMode = "custom_parts",
-    _fov = 60,
-    _fovSq = 60 * 60,
+    _aimAssistActivation = "mb2",
     _smoothness = 1,
+    _fovRadius = 60,
+    _fovRadiusSq = 60 * 60,
     _renderConn = nil,
     _fovCircle = nil,
     _viewmodelsFolder = nil,
     _hookInstalled = false,
-    _targetParts = {
-        "head", "torso", "shoulder1", "shoulder2",
-        "arm1", "arm2", "hip1", "hip2", "leg1", "leg2",
-    },
+}
+
+local TARGET_PARTS = {
+    "head", "torso", "shoulder1", "shoulder2",
+    "arm1", "arm2", "hip1", "hip2", "leg1", "leg2",
 }
 
 local function clampNumber(v, minV, maxV, defaultV)
@@ -36,15 +37,21 @@ local function clampNumber(v, minV, maxV, defaultV)
     return n
 end
 
-local function getCamera()
-    return Workspace.CurrentCamera
-end
-
-local function toLower(str)
-    if type(str) ~= "string" then
+local function toLower(v)
+    if type(v) ~= "string" then
         return ""
     end
-    return string.lower(str)
+    return string.lower(v)
+end
+
+local function getDebugApi()
+    if type(dbg) == "table" then
+        return dbg
+    end
+    if type(debug) == "table" then
+        return debug
+    end
+    return nil
 end
 
 function Module:setShared(shared)
@@ -76,7 +83,7 @@ end
 
 function Module:_getMousePosition()
     if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
-        local camera = getCamera()
+        local camera = Workspace.CurrentCamera
         if camera then
             return Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y * 0.5)
         end
@@ -86,53 +93,12 @@ function Module:_getMousePosition()
     return Vector2.new(pos.X, pos.Y)
 end
 
-function Module:_getViewmodelsFolder()
-    if self._viewmodelsFolder and self._viewmodelsFolder.Parent then
-        return self._viewmodelsFolder
-    end
-
-    self._viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
-    return self._viewmodelsFolder
-end
-
-function Module:_isCandidateModel(model)
-    if not model or not model:IsA("Model") then
-        return false
-    end
-
-    if model.Name ~= "Viewmodel" then
-        return false
-    end
-
-    local torso = model:FindFirstChild("torso")
-    if torso and torso:IsA("BasePart") and torso.Transparency >= 1 then
-        return false
-    end
-
-    return true
-end
-
-function Module:_shouldUsePartName(partName)
-    if self._targetMode == "head_only" then
-        return toLower(partName) == "head"
-    end
-
-    local target = toLower(partName)
-    for _, name in ipairs(self._targetParts) do
-        if target == name then
-            return true
-        end
-    end
-
-    return false
-end
-
 function Module:_checkPart(part, mousePos, closestPart, closestDistSq)
     if not part or not part:IsA("BasePart") then
         return closestPart, closestDistSq
     end
 
-    local camera = getCamera()
+    local camera = Workspace.CurrentCamera
     if not camera then
         return closestPart, closestDistSq
     end
@@ -146,7 +112,7 @@ function Module:_checkPart(part, mousePos, closestPart, closestDistSq)
     local dy = screenPos.Y - mousePos.Y
     local distSq = dx * dx + dy * dy
 
-    if distSq <= self._fovSq and distSq < closestDistSq then
+    if distSq <= self._fovRadiusSq and distSq < closestDistSq then
         return part, distSq
     end
 
@@ -154,25 +120,33 @@ function Module:_checkPart(part, mousePos, closestPart, closestDistSq)
 end
 
 function Module:_getClosestTargetToCursor()
-    local folder = self:_getViewmodelsFolder()
-    if not folder then
+    local closestPart = nil
+    local closestDistSq = math.huge
+    local mousePos = self:_getMousePosition()
+
+    if not self._viewmodelsFolder or not self._viewmodelsFolder.Parent then
+        self._viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
+    end
+
+    local viewmodelsFolder = self._viewmodelsFolder
+    if not viewmodelsFolder then
         return nil
     end
 
-    local mousePos = self:_getMousePosition()
-    local closestPart = nil
-    local closestDistSq = math.huge
+    for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
+        if vm.Name == "Viewmodel" then
+            local torso = vm:FindFirstChild("torso")
+            if torso and torso.Transparency == 1 then
+                continue
+            end
 
-    for _, model in ipairs(folder:GetChildren()) do
-        if self:_isCandidateModel(model) then
             if self._targetMode == "head_only" then
-                local head = model:FindFirstChild("head")
+                local head = vm:FindFirstChild("head")
                 closestPart, closestDistSq = self:_checkPart(head, mousePos, closestPart, closestDistSq)
             else
-                for _, child in ipairs(model:GetChildren()) do
-                    if child:IsA("BasePart") and self:_shouldUsePartName(child.Name) then
-                        closestPart, closestDistSq = self:_checkPart(child, mousePos, closestPart, closestDistSq)
-                    end
+                for _, partName in ipairs(TARGET_PARTS) do
+                    local part = vm:FindFirstChild(partName)
+                    closestPart, closestDistSq = self:_checkPart(part, mousePos, closestPart, closestDistSq)
                 end
             end
         end
@@ -181,18 +155,7 @@ function Module:_getClosestTargetToCursor()
     return closestPart
 end
 
-function Module:_updateFovCircle()
-    if not self._fovCircle then
-        return
-    end
-
-    local pos = self:_getMousePosition()
-    self._fovCircle.Position = pos
-    self._fovCircle.Radius = self._fov
-    self._fovCircle.Visible = self._enabled
-end
-
-function Module:_isAimAssistActiveInput()
+function Module:_isAimAssistInputActive()
     if self._aimAssistActivation == "always" then
         return true
     end
@@ -210,19 +173,15 @@ function Module:_isAimAssistActiveInput()
 end
 
 function Module:_runAimAssist()
-    if not self._enabled then
+    if not self._enabled or self._mode ~= "aim_assist" then
         return
     end
 
-    if self._mode ~= "aim_assist" then
+    if not self:_isAimAssistInputActive() then
         return
     end
 
-    if not self:_isAimAssistActiveInput() then
-        return
-    end
-
-    local camera = getCamera()
+    local camera = Workspace.CurrentCamera
     if not camera then
         return
     end
@@ -242,43 +201,19 @@ function Module:_runAimAssist()
     end
 end
 
+function Module:_updateFovCircle()
+    if not self._fovCircle then
+        return
+    end
+
+    self._fovCircle.Visible = self._enabled
+    self._fovCircle.Radius = self._fovRadius
+    self._fovCircle.Position = self:_getMousePosition()
+end
+
 function Module:_onRenderStep()
     self:_updateFovCircle()
     self:_runAimAssist()
-end
-
-function Module:_onCFrameNew(oldCF, ...)
-    if not self._enabled or self._mode ~= "silent" then
-        return oldCF(...)
-    end
-
-    local dbg = debug
-    if type(dbg) ~= "table" then
-        return oldCF(...)
-    end
-
-    if type(dbg.info) ~= "function" or type(dbg.getstack) ~= "function" or type(dbg.setstack) ~= "function" then
-        return oldCF(...)
-    end
-
-    local stackLevel = nil
-    if dbg.info(2, "n") == "send_shoot" then
-        stackLevel = 2
-    elseif dbg.info(3, "n") == "send_shoot" then
-        stackLevel = 3
-    end
-
-    if stackLevel then
-        local target = self:_getClosestTargetToCursor()
-        if target then
-            local origin = dbg.getstack(stackLevel, 3)
-            if origin and origin.Position then
-                dbg.setstack(stackLevel, 5, CFrame.lookAt(origin.Position, target.Position))
-            end
-        end
-    end
-
-    return oldCF(...)
 end
 
 function Module:_installHook()
@@ -299,7 +234,41 @@ function Module:_installHook()
 
     local ok, err = pcall(function()
         hookfn(CFrame.new, closure(function(...)
-            return selfRef:_onCFrameNew(oldCF, ...)
+            if not selfRef._enabled or selfRef._mode ~= "silent" then
+                return oldCF(...)
+            end
+
+            local dbgApi = getDebugApi()
+            if not dbgApi then
+                return oldCF(...)
+            end
+
+            local infoFn = dbgApi.info
+            local getStackFn = dbgApi.getstack or getstack
+            local setStackFn = dbgApi.setstack or setstack
+
+            if type(infoFn) ~= "function" or type(getStackFn) ~= "function" or type(setStackFn) ~= "function" then
+                return oldCF(...)
+            end
+
+            local stackLevel = nil
+            if infoFn(2, "n") == "send_shoot" then
+                stackLevel = 2
+            elseif infoFn(3, "n") == "send_shoot" then
+                stackLevel = 3
+            end
+
+            if stackLevel then
+                local target = selfRef:_getClosestTargetToCursor()
+                if target then
+                    local origin = getStackFn(stackLevel, 3)
+                    if origin and origin.Position then
+                        setStackFn(stackLevel, 5, CFrame.lookAt(origin.Position, target.Position))
+                    end
+                end
+            end
+
+            return oldCF(...)
         end))
     end)
 
@@ -321,7 +290,7 @@ function Module:_createFovCircle()
     end
 
     local env = (getgenv and getgenv()) or _G
-    if env.__op1_silent_fov_circle then
+    if type(env) == "table" and env.__op1_silent_fov_circle then
         pcall(function()
             env.__op1_silent_fov_circle:Remove()
         end)
@@ -334,10 +303,13 @@ function Module:_createFovCircle()
     circle.NumSides = 72
     circle.Color = Color3.fromRGB(255, 255, 255)
     circle.Transparency = 1
-    circle.Radius = self._fov
+    circle.Radius = self._fovRadius
     circle.Position = self:_getMousePosition()
 
-    env.__op1_silent_fov_circle = circle
+    if type(env) == "table" then
+        env.__op1_silent_fov_circle = circle
+    end
+
     self._fovCircle = circle
 end
 
@@ -390,8 +362,8 @@ function Module:setEnabled(state)
 end
 
 function Module:setFov(value)
-    self._fov = clampNumber(value, 10, 400, 60)
-    self._fovSq = self._fov * self._fov
+    self._fovRadius = clampNumber(value, 10, 400, 60)
+    self._fovRadiusSq = self._fovRadius * self._fovRadius
     self:_updateFovCircle()
     return true
 end
