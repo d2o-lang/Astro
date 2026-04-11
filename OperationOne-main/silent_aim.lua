@@ -1,31 +1,64 @@
-local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
-local UserInputService = cloneref(game:GetService("UserInputService"))
-local Workspace = cloneref(game:GetService("Workspace"))
-local RunService = cloneref(game:GetService("RunService"))
-
-local TARGET_PARTS = {
-    "head", "torso", "shoulder1", "shoulder2",
-    "arm1", "arm2", "hip1", "hip2", "leg1", "leg2",
-}
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Module = {
     shared = nil,
     _initialized = false,
-    _hooked = false,
     _enabled = false,
-    _gunModule = nil,
-    _originalGetShootLook = nil,
-    _fovRadius = 60,
-    _smoothness = 1,
     _mode = "silent",
-    _assistActivation = "mb2",
+    _aimAssistActivation = "mb2",
     _targetMode = "custom_parts",
-    _singleTargetPart = "head",
-    _circleEnabled = true,
+    _fov = 60,
+    _fovSq = 60 * 60,
+    _smoothness = 1,
+    _connections = {},
+    _renderConn = nil,
     _fovCircle = nil,
-    _circleConn = nil,
-    _assistConn = nil,
+    _viewmodelsFolder = nil,
+    _hookInstalled = false,
+    _oldCFrameNew = nil,
+    _targetParts = {
+        "head", "torso", "shoulder1", "shoulder2",
+        "arm1", "arm2", "hip1", "hip2",
+        "leg1", "leg2", "sleeve", "glove", "boot",
+    },
 }
+
+local function clampNumber(v, minV, maxV, defaultV)
+    local n = tonumber(v)
+    if not n then
+        return defaultV
+    end
+    if n < minV then
+        return minV
+    end
+    if n > maxV then
+        return maxV
+    end
+    return n
+end
+
+local function disconnectAll(connections)
+    for _, conn in ipairs(connections) do
+        pcall(function()
+            conn:Disconnect()
+        end)
+    end
+    table.clear(connections)
+end
+
+local function getCamera()
+    return Workspace.CurrentCamera
+end
+
+local function toLower(str)
+    if type(str) ~= "string" then
+        return ""
+    end
+    return string.lower(str)
+end
 
 function Module:setShared(shared)
     if type(shared) ~= "table" then
@@ -33,210 +66,294 @@ function Module:setShared(shared)
     end
 
     self.shared = shared
+
     if type(shared.applyToEnv) == "function" then
-        shared:applyToEnv()
+        pcall(function()
+            shared:applyToEnv()
+        end)
     end
 
-    ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
-    UserInputService = cloneref(game:GetService("UserInputService"))
-    Workspace = cloneref(game:GetService("Workspace"))
-    RunService = cloneref(game:GetService("RunService"))
+    local ref = shared.cloneref
+    if type(ref) ~= "function" then
+        ref = shared.ref
+    end
+
+    if type(ref) == "function" then
+        RunService = ref(game:GetService("RunService"))
+        UserInputService = ref(game:GetService("UserInputService"))
+        Workspace = ref(game:GetService("Workspace"))
+        ReplicatedStorage = ref(game:GetService("ReplicatedStorage"))
+    end
+
     return true
 end
 
-local function cloneCallable(ref)
-    if type(ref) ~= "function" then
-        return ref
+function Module:_getMousePosition()
+    if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+        local camera = getCamera()
+        if camera then
+            return Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y * 0.5)
+        end
     end
-    local ok, cloned = pcall(clonefunction, ref)
-    if ok and cloned then
-        return cloned
-    end
-    return ref
+
+    local pos = UserInputService:GetMouseLocation()
+    return Vector2.new(pos.X, pos.Y)
 end
 
-local function getPartList(module)
-    if module._targetMode == "custom_parts" then
-        return TARGET_PARTS
+function Module:_getViewmodelsFolder()
+    if self._viewmodelsFolder and self._viewmodelsFolder.Parent then
+        return self._viewmodelsFolder
     end
-    return { module._singleTargetPart or "head" }
+
+    self._viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
+    return self._viewmodelsFolder
 end
 
-local function isAimAssistActive(module)
-    if module._assistActivation == "always" then
-        return true
+function Module:_isCandidateModel(model)
+    if not model or not model:IsA("Model") then
+        return false
     end
-    if module._assistActivation == "mb1" then
-        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+
+    if model.Name == "LocalViewmodel" then
+        return false
     end
-    return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+
+    local torso = model:FindFirstChild("torso")
+    if torso and torso:IsA("BasePart") and torso.Transparency >= 1 then
+        return false
+    end
+
+    return true
 end
 
-function Module:_pickAimPart()
-    local camera = Workspace.CurrentCamera
+function Module:_shouldUsePartName(partName)
+    if self._targetMode == "head_only" then
+        return toLower(partName) == "head"
+    end
+
+    local target = toLower(partName)
+    for _, name in ipairs(self._targetParts) do
+        if target == name then
+            return true
+        end
+    end
+
+    return false
+end
+
+function Module:_checkPart(part, mousePos, closestPart, closestDistSq)
+    if not part or not part:IsA("BasePart") then
+        return closestPart, closestDistSq
+    end
+
+    local camera = getCamera()
     if not camera then
+        return closestPart, closestDistSq
+    end
+
+    local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
+    if not onScreen then
+        return closestPart, closestDistSq
+    end
+
+    local dx = screenPos.X - mousePos.X
+    local dy = screenPos.Y - mousePos.Y
+    local distSq = dx * dx + dy * dy
+
+    if distSq <= self._fovSq and distSq < closestDistSq then
+        return part, distSq
+    end
+
+    return closestPart, closestDistSq
+end
+
+function Module:_getClosestTargetToCursor()
+    local folder = self:_getViewmodelsFolder()
+    if not folder then
         return nil
     end
 
-    local viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
-    if not viewmodelsFolder then
-        return nil
-    end
+    local mousePos = self:_getMousePosition()
+    local closestPart = nil
+    local closestDistSq = math.huge
 
-    local best, best_d2 = nil, math.huge
-    local mouse = UserInputService:GetMouseLocation()
-    local radius_sq = self._fovRadius * self._fovRadius
-
-    for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
-        if vm.Name == "LocalViewmodel" or vm.Name ~= "Viewmodel" then
-            continue
-        end
-
-        local torso = vm:FindFirstChild("torso")
-        if torso and torso.Transparency == 1 then
-            continue
-        end
-
-        for _, name in ipairs(getPartList(self)) do
-            local part = vm:FindFirstChild(name)
-            if not part or not part:IsA("BasePart") then
-                continue
-            end
-
-            local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
-            if not onScreen then
-                continue
-            end
-
-            local dx = screenPos.X - mouse.X
-            local dy = screenPos.Y - mouse.Y
-            local d2 = dx * dx + dy * dy
-
-            if d2 <= radius_sq and d2 < best_d2 then
-                best = part
-                best_d2 = d2
+    for _, model in ipairs(folder:GetChildren()) do
+        if self:_isCandidateModel(model) then
+            if self._targetMode == "head_only" then
+                local head = model:FindFirstChild("head")
+                closestPart, closestDistSq = self:_checkPart(head, mousePos, closestPart, closestDistSq)
+            else
+                for _, child in ipairs(model:GetChildren()) do
+                    if child:IsA("BasePart") and self:_shouldUsePartName(child.Name) then
+                        closestPart, closestDistSq = self:_checkPart(child, mousePos, closestPart, closestDistSq)
+                    end
+                end
             end
         end
     end
 
-    return best
+    return closestPart
 end
 
 function Module:_updateFovCircle()
-    local circle = self._fovCircle
-    if not circle then
+    if not self._fovCircle then
         return
     end
 
-    local mp = UserInputService:GetMouseLocation()
-    circle.Position = Vector2.new(mp.X, mp.Y)
-    circle.Radius = self._fovRadius
-    circle.Visible = self._enabled and self._circleEnabled
+    local pos = self:_getMousePosition()
+    self._fovCircle.Position = pos
+    self._fovCircle.Radius = self._fov
+    self._fovCircle.Visible = self._enabled
 end
 
-function Module:_ensureFovCircle()
-    if self._fovCircle then
-        self:_updateFovCircle()
+function Module:_isAimAssistActiveInput()
+    if self._aimAssistActivation == "always" then
+        return true
+    end
+
+    if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+        local touches = UserInputService:GetTouches()
+        return type(touches) == "table" and #touches > 0
+    end
+
+    if self._aimAssistActivation == "mb1" then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    end
+
+    return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+end
+
+function Module:_runAimAssist()
+    if not self._enabled then
         return
     end
 
-    if not (Drawing and Drawing.new) then
+    if self._mode ~= "aim_assist" then
         return
+    end
+
+    if not self:_isAimAssistActiveInput() then
+        return
+    end
+
+    local camera = getCamera()
+    if not camera then
+        return
+    end
+
+    local target = self:_getClosestTargetToCursor()
+    if not target then
+        return
+    end
+
+    local desired = CFrame.lookAt(camera.CFrame.Position, target.Position)
+    local alpha = clampNumber(self._smoothness, 0.01, 1, 1)
+
+    if alpha >= 0.999 then
+        camera.CFrame = desired
+    else
+        camera.CFrame = camera.CFrame:Lerp(desired, alpha)
+    end
+end
+
+function Module:_onRenderStep()
+    self:_updateFovCircle()
+    self:_runAimAssist()
+end
+
+function Module:_onCFrameNew(oldCF, ...)
+    if not self._enabled or self._mode ~= "silent" then
+        return oldCF(...)
+    end
+
+    local dbg = debug
+    if type(dbg) ~= "table" then
+        return oldCF(...)
+    end
+
+    if type(dbg.info) ~= "function" or type(dbg.getstack) ~= "function" or type(dbg.setstack) ~= "function" then
+        return oldCF(...)
+    end
+
+    local stackLevel = nil
+    if dbg.info(2, "n") == "send_shoot" then
+        stackLevel = 2
+    elseif dbg.info(3, "n") == "send_shoot" then
+        stackLevel = 3
+    end
+
+    if stackLevel then
+        local target = self:_getClosestTargetToCursor()
+        if target then
+            local origin = dbg.getstack(stackLevel, 3)
+            if origin and origin.Position then
+                dbg.setstack(stackLevel, 5, CFrame.lookAt(origin.Position, target.Position))
+            end
+        end
+    end
+
+    return oldCF(...)
+end
+
+function Module:_installHook()
+    if self._hookInstalled then
+        return true
+    end
+
+    local clonefn = clonefunction or function(fn) return fn end
+    local closure = newcclosure or function(fn) return fn end
+    local hookfn = hookfunction
+
+    if type(hookfn) ~= "function" then
+        return false, "hookfunction unavailable"
+    end
+
+    local oldCF = clonefn(CFrame.new)
+    local selfRef = self
+
+    local ok, err = pcall(function()
+        hookfn(CFrame.new, closure(function(...)
+            return selfRef:_onCFrameNew(oldCF, ...)
+        end))
+    end)
+
+    if not ok then
+        return false, tostring(err)
+    end
+
+    self._oldCFrameNew = oldCF
+    self._hookInstalled = true
+    return true
+end
+
+function Module:_createFovCircle()
+    if self._fovCircle then
+        return
+    end
+
+    if type(Drawing) ~= "table" or type(Drawing.new) ~= "function" then
+        return
+    end
+
+    local env = (getgenv and getgenv()) or _G
+    if env.__op1_silent_fov_circle then
+        pcall(function()
+            env.__op1_silent_fov_circle:Remove()
+        end)
     end
 
     local circle = Drawing.new("Circle")
     circle.Visible = false
     circle.Filled = false
     circle.Thickness = 1.5
+    circle.NumSides = 72
     circle.Color = Color3.fromRGB(255, 255, 255)
-    circle.Transparency = 0.7
-    circle.NumSides = 64
-    circle.Radius = self._fovRadius
+    circle.Transparency = 1
+    circle.Radius = self._fov
+    circle.Position = self:_getMousePosition()
+
+    env.__op1_silent_fov_circle = circle
     self._fovCircle = circle
-
-    self._circleConn = RunService.RenderStepped:Connect(function()
-        self:_updateFovCircle()
-    end)
-end
-
-function Module:_installHook()
-    if self._hooked then
-        return true
-    end
-
-    local okRequire, gunModuleOrErr = pcall(function()
-        return require(ReplicatedStorage.Modules.Items.Item.Gun)
-    end)
-    if not okRequire or type(gunModuleOrErr) ~= "table" then
-        return false, "gun module require failed: " .. tostring(gunModuleOrErr)
-    end
-
-    self._gunModule = gunModuleOrErr
-    self._originalGetShootLook = cloneCallable(self._gunModule.get_shoot_look)
-    if type(self._originalGetShootLook) ~= "function" then
-        return false, "get_shoot_look not callable"
-    end
-
-    self._gunModule.get_shoot_look = newcclosure(function(weapon)
-        if checkcaller_safe() then
-            return self._originalGetShootLook(weapon)
-        end
-
-        local okOriginal, originalLook = pcall(self._originalGetShootLook, weapon)
-        if not okOriginal or typeof(originalLook) ~= "CFrame" then
-            return CFrame.new()
-        end
-
-        if not self._enabled then
-            return originalLook
-        end
-
-        if self._mode ~= "silent" then
-            return originalLook
-        end
-
-        local target = self:_pickAimPart()
-        if not target then
-            return originalLook
-        end
-
-        local origin = originalLook.Position
-        local targetCFrame = CFrame.lookAt(origin, target.Position)
-        return targetCFrame
-    end)
-
-    self._hooked = true
-    return true
-end
-
-function Module:_ensureAimAssistLoop()
-    if self._assistConn then
-        return
-    end
-
-    self._assistConn = RunService.RenderStepped:Connect(function()
-        if not self._enabled or self._mode ~= "aim_assist" then
-            return
-        end
-        if not isAimAssistActive(self) then
-            return
-        end
-
-        local camera = Workspace.CurrentCamera
-        if not camera then
-            return
-        end
-
-        local target = self:_pickAimPart()
-        if not target then
-            return
-        end
-
-        local camPos = camera.CFrame.Position
-        local targetCamCFrame = CFrame.lookAt(camPos, target.Position)
-        local alpha = math.clamp(self._smoothness, 0.01, 1)
-        camera.CFrame = camera.CFrame:Lerp(targetCamCFrame, alpha)
-    end)
 end
 
 function Module:init(force)
@@ -244,13 +361,26 @@ function Module:init(force)
         return true
     end
 
+    if self._initialized and force then
+        self:unload()
+    end
+
     local okHook, hookErr = self:_installHook()
     if not okHook then
         return false, hookErr
     end
 
-    self:_ensureFovCircle()
-    self:_ensureAimAssistLoop()
+    self:_createFovCircle()
+
+    if self._renderConn then
+        self._renderConn:Disconnect()
+        self._renderConn = nil
+    end
+
+    self._renderConn = RunService.RenderStepped:Connect(function()
+        self:_onRenderStep()
+    end)
+
     self._initialized = true
     return true
 end
@@ -268,127 +398,78 @@ function Module:setEnabled(state)
     if not okInit then
         return false, initErr
     end
+
     self._enabled = state == true
     self:_updateFovCircle()
     return true
 end
 
 function Module:setFov(value)
-    if type(value) ~= "number" or value <= 0 then
-        return false, "invalid fov"
-    end
-    self._fovRadius = value
+    self._fov = clampNumber(value, 10, 400, 60)
+    self._fovSq = self._fov * self._fov
     self:_updateFovCircle()
     return true
 end
 
 function Module:setSmoothness(value)
-    if type(value) ~= "number" then
-        return false, "invalid smoothness"
-    end
-    self._smoothness = math.clamp(value, 0.01, 1)
+    self._smoothness = clampNumber(value, 0.01, 1, 1)
     return true
 end
 
 function Module:setMode(mode)
-    if type(mode) ~= "string" then
+    local m = toLower(mode)
+    if m ~= "silent" and m ~= "aim_assist" then
         return false, "invalid mode"
     end
 
-    local normalized = string.lower(mode)
-    if normalized ~= "silent" and normalized ~= "aim_assist" then
-        return false, "mode must be silent or aim_assist"
-    end
-
-    self._mode = normalized
+    self._mode = m
     return true
 end
 
 function Module:setAimAssistActivation(mode)
-    if type(mode) ~= "string" then
-        return false, "invalid aim assist activation"
+    local m = toLower(mode)
+    if m ~= "mb1" and m ~= "mb2" and m ~= "always" then
+        return false, "invalid activation"
     end
 
-    local normalized = string.lower(mode)
-    if normalized ~= "mb1" and normalized ~= "mb2" and normalized ~= "always" then
-        return false, "activation must be mb1, mb2, or always"
-    end
-
-    self._assistActivation = normalized
+    self._aimAssistActivation = m
     return true
 end
 
 function Module:setTargetMode(mode)
-    if type(mode) ~= "string" then
+    local m = toLower(mode)
+    if m ~= "custom_parts" and m ~= "head_only" then
         return false, "invalid target mode"
     end
 
-    local normalized = string.lower(mode)
-    if normalized == "custom_parts" or normalized == "custom" then
-        self._targetMode = "custom_parts"
-        return true
-    end
-
-    if normalized == "head_only" or normalized == "head" then
-        self._targetMode = "single_part"
-        self._singleTargetPart = "head"
-        return true
-    end
-
-    return false, "unknown target mode"
-end
-
-function Module:setTargetPart(partName)
-    if type(partName) ~= "string" or partName == "" then
-        return false, "invalid target part"
-    end
-
-    self._targetMode = "single_part"
-    self._singleTargetPart = string.lower(partName)
-    return true
-end
-
-function Module:setTargeting(players, gadgets, cameras)
-    -- Kept for compatibility with previous UI signatures.
-    if players == true and gadgets == false and cameras == false then
-        self._targetMode = "custom_parts"
-    end
-    return true
-end
-
-function Module:setFovCircleEnabled(state)
-    self._circleEnabled = state == true
-    self:_updateFovCircle()
+    self._targetMode = m
     return true
 end
 
 function Module:unload()
-    if self._hooked and self._gunModule and self._originalGetShootLook then
-        self._gunModule.get_shoot_look = self._originalGetShootLook
+    self._enabled = false
+
+    if self._renderConn then
+        self._renderConn:Disconnect()
+        self._renderConn = nil
     end
 
-    if self._circleConn then
-        self._circleConn:Disconnect()
-        self._circleConn = nil
-    end
-
-    if self._assistConn then
-        self._assistConn:Disconnect()
-        self._assistConn = nil
-    end
+    disconnectAll(self._connections)
 
     if self._fovCircle then
         pcall(function()
+            self._fovCircle.Visible = false
             self._fovCircle:Remove()
         end)
         self._fovCircle = nil
     end
 
-    self._hooked = false
+    local env = (getgenv and getgenv()) or _G
+    if type(env) == "table" then
+        env.__op1_silent_fov_circle = nil
+    end
+
     self._initialized = false
-    self._enabled = false
-    self._mode = "silent"
-    self._assistActivation = "mb2"
     return true
 end
 
