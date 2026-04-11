@@ -1,7 +1,6 @@
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Module = {
     shared = nil,
@@ -13,16 +12,13 @@ local Module = {
     _fov = 60,
     _fovSq = 60 * 60,
     _smoothness = 1,
-    _connections = {},
     _renderConn = nil,
     _fovCircle = nil,
     _viewmodelsFolder = nil,
     _hookInstalled = false,
-    _oldCFrameNew = nil,
     _targetParts = {
         "head", "torso", "shoulder1", "shoulder2",
-        "arm1", "arm2", "hip1", "hip2",
-        "leg1", "leg2", "sleeve", "glove", "boot",
+        "arm1", "arm2", "hip1", "hip2", "leg1", "leg2",
     },
 }
 
@@ -38,15 +34,6 @@ local function clampNumber(v, minV, maxV, defaultV)
         return maxV
     end
     return n
-end
-
-local function disconnectAll(connections)
-    for _, conn in ipairs(connections) do
-        pcall(function()
-            conn:Disconnect()
-        end)
-    end
-    table.clear(connections)
 end
 
 local function getCamera()
@@ -82,7 +69,6 @@ function Module:setShared(shared)
         RunService = ref(game:GetService("RunService"))
         UserInputService = ref(game:GetService("UserInputService"))
         Workspace = ref(game:GetService("Workspace"))
-        ReplicatedStorage = ref(game:GetService("ReplicatedStorage"))
     end
 
     return true
@@ -114,7 +100,7 @@ function Module:_isCandidateModel(model)
         return false
     end
 
-    if model.Name == "LocalViewmodel" then
+    if model.Name ~= "Viewmodel" then
         return false
     end
 
@@ -321,7 +307,6 @@ function Module:_installHook()
         return false, tostring(err)
     end
 
-    self._oldCFrameNew = oldCF
     self._hookInstalled = true
     return true
 end
@@ -453,8 +438,6 @@ function Module:unload()
         self._renderConn:Disconnect()
         self._renderConn = nil
     end
-
-    disconnectAll(self._connections)
 
     if self._fovCircle then
         pcall(function()
