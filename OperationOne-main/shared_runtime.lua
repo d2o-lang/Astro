@@ -1,10 +1,10 @@
 local Runtime = {}
 Runtime.env_key = "__shared_runtime"
 
-Runtime.cloneref = cloneref or function(obj) return obj end
-Runtime.clonefunction = clonefunction or function(fn) return fn end
-Runtime.newcclosure = newcclosure or function(fn) return fn end
-Runtime.hookfunction = hookfunction or function(fn) return fn end
+Runtime.cloneref = cloneref 
+Runtime.clonefunction = clonefunction 
+Runtime.newcclosure = newcclosure 
+Runtime.hookfunction = hookfunction 
 Runtime.ref = Runtime.cloneref
 Runtime.cfn = Runtime.clonefunction
 Runtime.closure = Runtime.newcclosure
