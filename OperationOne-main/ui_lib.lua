@@ -25,9 +25,92 @@ local notifBaseY = 200
 
 local guiCounter = 0
 local activeInstances = {}
+local CONFIG_ROOT_FOLDER = "AKConfigs"
 
 local LibClass = {}
 LibClass.__index = LibClass
+
+local function trimString(value)
+	return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function sanitizeConfigSegment(value)
+	local cleaned = trimString(value)
+	cleaned = cleaned:gsub("[<>:\"/\\|%?%*]", "_")
+	cleaned = cleaned:gsub("%s+", "_")
+	cleaned = cleaned:gsub("_+", "_")
+	cleaned = cleaned:gsub("^_+", ""):gsub("_+$", "")
+	if cleaned == "" then
+		return "default"
+	end
+	return cleaned
+end
+
+local function normalizeConfigKey(value)
+	local cleaned = trimString(value):lower()
+	cleaned = cleaned:gsub("%s+", "_")
+	cleaned = cleaned:gsub("[^%w_]", "")
+	cleaned = cleaned:gsub("_+", "_")
+	cleaned = cleaned:gsub("^_+", ""):gsub("_+$", "")
+	if cleaned == "" then
+		return "control"
+	end
+	return cleaned
+end
+
+local function joinPath(...)
+	local parts = { ... }
+	local out = {}
+	for _, part in ipairs(parts) do
+		if part ~= nil then
+			local s = tostring(part):gsub("\\", "/")
+			s = s:gsub("^/+", ""):gsub("/+$", "")
+			if s ~= "" then
+				table.insert(out, s)
+			end
+		end
+	end
+	return table.concat(out, "/")
+end
+
+local function getFileName(path)
+	local normalized = tostring(path or ""):gsub("\\", "/")
+	return normalized:match("([^/]+)$") or normalized
+end
+
+local function uniqueSortedStrings(list)
+	local seen = {}
+	local out = {}
+	for _, item in ipairs(list or {}) do
+		if type(item) == "string" then
+			local trimmed = trimString(item)
+			local lookup = trimmed:lower()
+			if trimmed ~= "" and not seen[lookup] then
+				seen[lookup] = true
+				table.insert(out, trimmed)
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a:lower() < b:lower()
+	end)
+	return out
+end
+
+local function decodeKeyCode(value)
+	if typeof(value) == "EnumItem" and value.EnumType == Enum.KeyCode then
+		return value
+	end
+	if type(value) == "string" and value ~= "" then
+		local ok, enumItem = pcall(function()
+			return Enum.KeyCode[value]
+		end)
+		if ok then
+			return enumItem
+		end
+	end
+	return nil
+end
 
 local function make(className, props)
 	local obj = Instance.new(className)
@@ -272,6 +355,10 @@ function LibClass.new(title, hideKey)
 	self._tabs = {}
 	self._activeTab = nil
 	self._activeTweens = {}
+	self._configEntries = {}
+	self._configOrder = {}
+	self._configFolder = joinPath(CONFIG_ROOT_FOLDER, sanitizeConfigSegment(titleKey))
+	self._configUi = nil
 	self._hideKey = hideKey or Enum.KeyCode.RightShift
 	self._orderCounter = makeOrderCounter()
 	self._destroyed = false
@@ -840,6 +927,335 @@ function LibClass:_getTarget()
 	return self.scrollFrame, self.listLayout, self._orderCounter()
 end
 
+function LibClass:_registerConfigControl(name, controlType, defaultValue, getter, apply)
+	if type(name) ~= "string" or name == "" then
+		return nil
+	end
+	if type(getter) ~= "function" or type(apply) ~= "function" then
+		return nil
+	end
+
+	local baseKey = normalizeConfigKey(name)
+	local key = baseKey
+	local suffix = 2
+	while self._configEntries[key] do
+		key = baseKey .. "_" .. tostring(suffix)
+		suffix = suffix + 1
+	end
+
+	local entry = {
+		key = key,
+		name = name,
+		type = controlType,
+		default = defaultValue,
+		get = getter,
+		apply = apply,
+	}
+
+	self._configEntries[key] = entry
+	table.insert(self._configOrder, entry)
+	return entry
+end
+
+function LibClass:_getConfigFolder()
+	return self._configFolder or joinPath(CONFIG_ROOT_FOLDER, sanitizeConfigSegment(self._titleKey))
+end
+
+function LibClass:setConfigFolder(folderPath)
+	local cleaned = trimString(folderPath)
+	if cleaned == "" then
+		cleaned = joinPath(CONFIG_ROOT_FOLDER, sanitizeConfigSegment(self._titleKey))
+	end
+	self._configFolder = cleaned:gsub("\\", "/")
+	return self
+end
+
+function LibClass:_ensureConfigFolder()
+	local folder = self:_getConfigFolder()
+	local exists = false
+
+	if type(isfolder) == "function" then
+		local ok, result = pcall(isfolder, folder)
+		exists = ok and result == true
+	end
+
+	if not exists then
+		if type(makefolder) ~= "function" then
+			return nil, "makefolder unavailable"
+		end
+
+		local okMake, err = pcall(makefolder, folder)
+		if not okMake then
+			if type(isfolder) == "function" then
+				local okCheck, result = pcall(isfolder, folder)
+				if not (okCheck and result == true) then
+					return nil, tostring(err)
+				end
+			else
+				return nil, tostring(err)
+			end
+		end
+	end
+
+	return folder
+end
+
+function LibClass:_readJsonFile(path)
+	if type(isfile) == "function" then
+		local okExists, exists = pcall(isfile, path)
+		if not okExists or not exists then
+			return nil, "file not found"
+		end
+	end
+
+	if type(readfile) ~= "function" then
+		return nil, "readfile unavailable"
+	end
+
+	local okRead, content = pcall(readfile, path)
+	if not okRead or type(content) ~= "string" or content == "" then
+		return nil, okRead and "empty file" or tostring(content)
+	end
+
+	local okDecode, decoded = pcall(function()
+		return hs:JSONDecode(content)
+	end)
+	if not okDecode then
+		return nil, tostring(decoded)
+	end
+
+	return decoded
+end
+
+function LibClass:_writeJsonFile(path, data)
+	if type(writefile) ~= "function" then
+		return false, "writefile unavailable"
+	end
+
+	local okEncode, encoded = pcall(function()
+		return hs:JSONEncode(data)
+	end)
+	if not okEncode then
+		return false, tostring(encoded)
+	end
+
+	local okWrite, err = pcall(writefile, path, encoded)
+	if not okWrite then
+		return false, tostring(err)
+	end
+
+	return true
+end
+
+function LibClass:_getConfigFilePath(name)
+	return joinPath(self:_getConfigFolder(), sanitizeConfigSegment(name) .. ".json")
+end
+
+function LibClass:_getConfigIndexPath()
+	return joinPath(self:_getConfigFolder(), "_index.json")
+end
+
+function LibClass:_readConfigIndex()
+	local folder, ensureErr = self:_ensureConfigFolder()
+	if not folder then
+		return {}, ensureErr
+	end
+
+	local indexData = self:_readJsonFile(self:_getConfigIndexPath())
+	if type(indexData) == "table" then
+		return uniqueSortedStrings(indexData)
+	end
+
+	if type(listfiles) == "function" then
+		local okList, files = pcall(listfiles, folder)
+		if okList and type(files) == "table" then
+			local discovered = {}
+			for _, filePath in ipairs(files) do
+				local fileName = getFileName(filePath)
+				if fileName ~= "_index.json" and fileName:sub(-5):lower() == ".json" then
+					table.insert(discovered, fileName:sub(1, -6))
+				end
+			end
+			return uniqueSortedStrings(discovered)
+		end
+	end
+
+	return {}
+end
+
+function LibClass:_writeConfigIndex(names)
+	local folder, ensureErr = self:_ensureConfigFolder()
+	if not folder then
+		return false, ensureErr
+	end
+	return self:_writeJsonFile(self:_getConfigIndexPath(), uniqueSortedStrings(names))
+end
+
+function LibClass:_encodeConfigValue(entry, value)
+	if entry.type == "toggle" then
+		return value == true
+	end
+	if entry.type == "slider" then
+		return tonumber(value) or tonumber(entry.default) or 0
+	end
+	if entry.type == "dropdown" then
+		return tostring(value or "")
+	end
+	if entry.type == "textbox" then
+		return tostring(value or "")
+	end
+	if entry.type == "keybind" then
+		local keyCode = decodeKeyCode(value)
+		return keyCode and keyCode.Name or nil
+	end
+	return value
+end
+
+function LibClass:_decodeConfigValue(entry, value)
+	if value == nil then
+		return entry.default
+	end
+	if entry.type == "toggle" then
+		return value == true
+	end
+	if entry.type == "slider" then
+		return tonumber(value) or entry.default
+	end
+	if entry.type == "dropdown" then
+		return tostring(value)
+	end
+	if entry.type == "textbox" then
+		return tostring(value)
+	end
+	if entry.type == "keybind" then
+		return decodeKeyCode(value)
+	end
+	return value
+end
+
+function LibClass:listConfigs()
+	local names = self:_readConfigIndex()
+	if type(names) ~= "table" then
+		return {}
+	end
+	return uniqueSortedStrings(names)
+end
+
+function LibClass:saveConfig(name)
+	local configName = trimString(name)
+	if configName == "" then
+		configName = "default"
+	end
+
+	local folder, ensureErr = self:_ensureConfigFolder()
+	if not folder then
+		return false, ensureErr
+	end
+
+	local payload = {
+		meta = {
+			name = configName,
+			title = self._titleKey,
+			saved_at = os.date and os.date("!%Y-%m-%dT%H:%M:%SZ") or tostring(os.time and os.time() or tick()),
+			version = 1,
+		},
+		values = {},
+	}
+
+	for _, entry in ipairs(self._configOrder) do
+		local okGet, currentValue = pcall(entry.get)
+		if okGet then
+			local encoded = self:_encodeConfigValue(entry, currentValue)
+			if encoded ~= nil then
+				payload.values[entry.key] = encoded
+			end
+		end
+	end
+
+	local okWrite, writeErr = self:_writeJsonFile(self:_getConfigFilePath(configName), payload)
+	if not okWrite then
+		return false, writeErr
+	end
+
+	local configNames = self:listConfigs()
+	table.insert(configNames, configName)
+	self:_writeConfigIndex(configNames)
+
+	if self._configUi and type(self._configUi.refresh) == "function" then
+		self._configUi.refresh(configName)
+	end
+
+	return true
+end
+
+function LibClass:loadConfig(name)
+	local configName = trimString(name)
+	if configName == "" then
+		return false, "invalid config name"
+	end
+
+	local payload, readErr = self:_readJsonFile(self:_getConfigFilePath(configName))
+	if type(payload) ~= "table" then
+		return false, readErr
+	end
+
+	local values = payload.values or payload
+	if type(values) ~= "table" then
+		return false, "invalid config format"
+	end
+
+	for _, entry in ipairs(self._configOrder) do
+		local decoded = self:_decodeConfigValue(entry, values[entry.key])
+		local okApply = pcall(entry.apply, decoded, true)
+		if not okApply then
+			-- Keep loading the remaining controls even if one callback fails.
+		end
+	end
+
+	if self._configUi and type(self._configUi.refresh) == "function" then
+		self._configUi.refresh(configName)
+	end
+
+	return true
+end
+
+function LibClass:deleteConfig(name)
+	local configName = trimString(name)
+	if configName == "" then
+		return false, "invalid config name"
+	end
+	if type(delfile) ~= "function" then
+		return false, "delfile unavailable"
+	end
+
+	local path = self:_getConfigFilePath(configName)
+	if type(isfile) == "function" then
+		local okExists, exists = pcall(isfile, path)
+		if not okExists or not exists then
+			return false, "config not found"
+		end
+	end
+
+	local okDelete, err = pcall(delfile, path)
+	if not okDelete then
+		return false, tostring(err)
+	end
+
+	local remaining = {}
+	for _, existing in ipairs(self:listConfigs()) do
+		if existing:lower() ~= configName:lower() then
+			table.insert(remaining, existing)
+		end
+	end
+	self:_writeConfigIndex(remaining)
+
+	if self._configUi and type(self._configUi.refresh) == "function" then
+		self._configUi.refresh(remaining[1] or "")
+	end
+
+	return true
+end
+
 function LibClass:addButton(name, callback)
 	local parent, _, layoutOrder = self:_getTarget()
 	local row = makeRow(parent, layoutOrder)
@@ -999,6 +1415,11 @@ function LibClass:addToggle(name, default, callback)
 	end
 
 	self._toggles[name] = obj
+	self:_registerConfigControl(name, "toggle", state, function()
+		return state
+	end, function(v, fireCallback)
+		setValue(v == true, fireCallback == true)
+	end)
 	return obj
 end
 
@@ -1149,16 +1570,22 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 		return normalizeValue(math.clamp(stepped, min, correctedMax))
 	end
 
-	local function applyValue(x)
-		local ratio = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-		local raw = min + ratio * (correctedMax - min)
-		local snapped = snapValue(raw)
+	local function setCurrentValue(v, fireCallback)
+		local snapped = snapValue(v)
 		current = snapped
 		local p = getProgress(snapped)
 		fill.Size = UDim2.new(p, 0, 1, 0)
 		knob.Position = UDim2.new(p, 0, 0.5, 0)
 		valueLabel.Text = formatValue(snapped)
-		if callback then pcall(callback, snapped) end
+		if fireCallback and callback then
+			pcall(callback, snapped)
+		end
+	end
+
+	local function applyValue(x)
+		local ratio = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+		local raw = min + ratio * (correctedMax - min)
+		setCurrentValue(raw, true)
 	end
 
 	local sliderDragging = false
@@ -1195,14 +1622,15 @@ function LibClass:addSlider(name, min, max, default, step, callback)
 		table.insert(self._activeTab.items, row)
 	end
 	self:resize()
+	self:_registerConfigControl(name, "slider", current, function()
+		return current
+	end, function(v, fireCallback)
+		setCurrentValue(v, fireCallback == true)
+	end)
 
 	return {
 		set = function(v)
-			current = snapValue(v)
-			local p = getProgress(current)
-			fill.Size = UDim2.new(p, 0, 1, 0)
-			knob.Position = UDim2.new(p, 0, 0.5, 0)
-			valueLabel.Text = formatValue(current)
+			setCurrentValue(v, false)
 		end,
 		get = function()
 			return current
@@ -1280,15 +1708,27 @@ function LibClass:addTextBox(name, placeholder, maxLength, callback)
 		end
 	end)
 
+	local function setTextValue(v, fireCallback)
+		box.Text = tostring(v or ""):sub(1, maxLength)
+		if fireCallback and callback then
+			pcall(callback, box.Text)
+		end
+	end
+
 	if self._activeTab then
 		table.insert(self._activeTab.items, row)
 	end
 	self:resize()
+	self:_registerConfigControl(name, "textbox", "", function()
+		return box.Text
+	end, function(v, fireCallback)
+		setTextValue(v, fireCallback == true)
+	end)
 
 	return {
 		get = function() return box.Text end,
-		set = function(v) box.Text = tostring(v):sub(1, maxLength) end,
-		clear = function() box.Text = "" end,
+		set = function(v) setTextValue(v, false) end,
+		clear = function() setTextValue("", false) end,
 	}
 end
 
@@ -1302,6 +1742,15 @@ function LibClass:addDropdown(name, options, default, callback)
 	local isOpen = false
 	local selected = default or options[1]
 	local currentOptions = { table.unpack(options) }
+
+	local function hasOption(value)
+		for _, option in ipairs(currentOptions) do
+			if tostring(option) == tostring(value) then
+				return true
+			end
+		end
+		return false
+	end
 
 	local inner = make("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
@@ -1350,8 +1799,12 @@ function LibClass:addDropdown(name, options, default, callback)
 	})
 	addCorner(dropBtn, 7)
 
+	local function getPanelWidth()
+		return math.max(math.floor(dropBtn.AbsoluteSize.X + 0.5), 120)
+	end
+
 	local panel = make("Frame", {
-		Size = UDim2.new(0, 140, 0, 0),
+		Size = UDim2.new(0, getPanelWidth(), 0, 0),
 		BackgroundColor3 = Color3.fromRGB(18, 18, 18),
 		BackgroundTransparency = 0.1,
 		BorderSizePixel = 0,
@@ -1384,7 +1837,7 @@ function LibClass:addDropdown(name, options, default, callback)
 		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
 		local contentH = panelLayout.AbsoluteContentSize.Y + 8
 		local maxH = vp.Y - panel.AbsolutePosition.Y - 10
-		panel.Size = UDim2.new(0, 140, 0, math.min(contentH, math.max(maxH, 30)))
+		panel.Size = UDim2.new(0, getPanelWidth(), 0, math.min(contentH, math.max(maxH, 30)))
 	end)
 
 	local optionConns = {}
@@ -1395,15 +1848,29 @@ function LibClass:addDropdown(name, options, default, callback)
 		panel.Visible = false
 	end
 
+	local function setSelectedValue(v, fireCallback)
+		if not hasOption(v) then
+			v = currentOptions[1]
+		end
+		selected = v
+		dropBtn.Text = tostring(v)
+		if fireCallback and callback then
+			pcall(callback, v)
+		end
+	end
+
 	local function updatePanelPosition()
 		local ap = dropBtn.AbsolutePosition
 		local as = dropBtn.AbsoluteSize
 		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+		local panelW = getPanelWidth()
 		local panelH = panel.AbsoluteSize.Y
 		local yBelow = ap.Y + as.Y + 2
 		local yAbove = ap.Y - panelH - 2
 		local finalY = (yBelow + panelH > vp.Y) and yAbove or yBelow
-		local finalX = math.clamp(ap.X, 4, vp.X - 144)
+		local maxX = math.max(vp.X - panelW - 4, 4)
+		local finalX = math.clamp(ap.X, 4, maxX)
+		panel.Size = UDim2.new(0, panelW, 0, panel.AbsoluteSize.Y)
 		panel.Position = UDim2.new(0, finalX, 0, finalY)
 	end
 
@@ -1430,10 +1897,8 @@ function LibClass:addDropdown(name, options, default, callback)
 			tween(optBtn, { BackgroundTransparency = 0.5 }, 0.1)
 		end)
 		local c3 = optBtn.MouseButton1Click:Connect(function()
-			selected = value
-			dropBtn.Text = tostring(value)
+			setSelectedValue(value, true)
 			closePanel()
-			if callback then pcall(callback, value) end
 		end)
 
 		table.insert(optionConns, c1)
@@ -1466,17 +1931,26 @@ function LibClass:addDropdown(name, options, default, callback)
 			updatePanelPosition()
 		end
 	end)
+	self._conn(dropBtn:GetPropertyChangedSignal("AbsoluteSize"), function()
+		if isOpen then
+			updatePanelPosition()
+		end
+	end)
 
 	if self._activeTab then
 		table.insert(self._activeTab.items, row)
 	end
 	self:resize()
+	self:_registerConfigControl(name, "dropdown", selected, function()
+		return selected
+	end, function(v, fireCallback)
+		setSelectedValue(v, fireCallback == true)
+	end)
 
 	return {
 		get = function() return selected end,
 		set = function(v)
-			selected = v
-			dropBtn.Text = tostring(v)
+			setSelectedValue(v, false)
 		end,
 		refresh = function(newOptions)
 			if not newOptions or #newOptions == 0 then
@@ -1504,6 +1978,11 @@ function LibClass:addDropdown(name, options, default, callback)
 			end
 			for i, v in ipairs(currentOptions) do
 				buildOption(i, v)
+			end
+			if not hasOption(selected) then
+				setSelectedValue(currentOptions[1], false)
+			else
+				dropBtn.Text = tostring(selected)
 			end
 		end,
 		destroy = function()
@@ -1610,6 +2089,17 @@ function LibClass:addKeybind(name, defaultKey, callback)
 		keyBtn.TextColor3 = currentKey and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(160, 160, 160)
 	end
 
+	local function setKeyValue(v)
+		local keyCode = decodeKeyCode(v)
+		if keyCode then
+			registerKey(keyCode)
+			keyBtn.Text = keyCode.Name
+			keyBtn.TextColor3 = Color3.fromRGB(80, 200, 120)
+		else
+			clearKey()
+		end
+	end
+
 	self._conn(keyBtn.MouseButton1Click, function()
 		if self._closed then return end
 		if isListening then
@@ -1649,14 +2139,16 @@ function LibClass:addKeybind(name, defaultKey, callback)
 		table.insert(self._activeTab.items, row)
 	end
 	self:resize()
+	self:_registerConfigControl(name, "keybind", currentKey and currentKey.Name or nil, function()
+		return currentKey
+	end, function(v)
+		setKeyValue(v)
+	end)
 
 	return {
 		get = function() return currentKey end,
 		set = function(v)
-			currentKey = v
-			keyBtn.Text = v and v.Name or "None"
-			keyBtn.TextColor3 = v and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(160, 160, 160)
-			if v then registerKey(v) else clearKey() end
+			setKeyValue(v)
 		end,
 	}
 end
@@ -2318,6 +2810,116 @@ function LibClass:addPlayerList(labelOrCallback, callback)
 		refresh = buildList,
 		getSelected = function() return selectedPlayer end,
 	}
+end
+
+function LibClass:addConfigManager(defaultName)
+	local initialName = trimString(defaultName)
+	if initialName == "" then
+		initialName = "default"
+	end
+
+	self:addSection("Config Manager")
+	local folderLabel = self:addLabel("Folder: " .. self:_getConfigFolder())
+	local status = self:addStatus("Status", "Idle")
+	local nameBox = self:addTextBox("Config Name", initialName, 64)
+	nameBox.set(initialName)
+
+	local currentNames = self:listConfigs()
+	if #currentNames == 0 then
+		currentNames = { initialName }
+	end
+
+	local configDropdown = self:addDropdown("Saved Configs", currentNames, currentNames[1], function(selected)
+		if trimString(selected) ~= "" then
+			nameBox.set(selected)
+		end
+	end)
+
+	local function setStatus(text, color)
+		status.set(text, color)
+	end
+
+	local function getActiveName()
+		local typed = trimString(nameBox.get())
+		if typed ~= "" then
+			return typed
+		end
+		local selected = trimString(configDropdown.get())
+		if selected ~= "" then
+			return selected
+		end
+		return initialName
+	end
+
+	local function refreshList(selectedName)
+		local names = self:listConfigs()
+		if #names == 0 then
+			names = { getActiveName() }
+		end
+		configDropdown.refresh(names)
+
+		local preferred = trimString(selectedName)
+		if preferred == "" then
+			preferred = names[1] or initialName
+		end
+
+		configDropdown.set(preferred)
+		nameBox.set(preferred)
+		folderLabel.set("Folder: " .. self:_getConfigFolder())
+	end
+
+	self:addButton("Refresh Configs", function()
+		refreshList(getActiveName())
+		setStatus("Config list refreshed", Color3.fromRGB(80, 170, 255))
+	end)
+
+	self:addButton("Save Config", function()
+		local configName = getActiveName()
+		local ok, err = self:saveConfig(configName)
+		if ok then
+			refreshList(configName)
+			setStatus("Saved: " .. configName, Color3.fromRGB(80, 200, 120))
+			self:notify("Config", "Saved " .. configName, nil, false)
+		else
+			setStatus("Save failed", Color3.fromRGB(255, 120, 120))
+			self:notify("Config", "Save failed: " .. tostring(err), nil, false)
+		end
+	end)
+
+	self:addButton("Load Config", function()
+		local configName = getActiveName()
+		local ok, err = self:loadConfig(configName)
+		if ok then
+			refreshList(configName)
+			setStatus("Loaded: " .. configName, Color3.fromRGB(80, 200, 120))
+			self:notify("Config", "Loaded " .. configName, nil, false)
+		else
+			setStatus("Load failed", Color3.fromRGB(255, 120, 120))
+			self:notify("Config", "Load failed: " .. tostring(err), nil, false)
+		end
+	end)
+
+	self:addButton("Delete Config", function()
+		local configName = getActiveName()
+		local ok, err = self:deleteConfig(configName)
+		if ok then
+			refreshList(self:listConfigs()[1] or initialName)
+			setStatus("Deleted: " .. configName, Color3.fromRGB(255, 170, 80))
+			self:notify("Config", "Deleted " .. configName, nil, false)
+		else
+			setStatus("Delete failed", Color3.fromRGB(255, 120, 120))
+			self:notify("Config", "Delete failed: " .. tostring(err), nil, false)
+		end
+	end)
+
+	refreshList(initialName)
+
+	self._configUi = {
+		refresh = refreshList,
+		getName = getActiveName,
+	}
+
+	return self._configUi
 end
 
 function LibClass:onClose(fn)
