@@ -432,6 +432,9 @@ local function buildAkUi(lib)
     window._manualHeight = 500
     window.mainFrame.Size = UDim2.new(0, 400, 0, 500)
     window:_updateScroll()
+    if type(window.setConfigFolder) == "function" then
+        window:setConfigFolder("FURRY KILLER CONFIG")
+    end
 
 
     local presetColors = {
@@ -519,7 +522,11 @@ local function buildAkUi(lib)
 
     local configTab = window:addTab("Config")
     window:switchTab(configTab)
-    window:addLabel("CUHHH MAYBE NEXT YEAR")
+    if type(window.addConfigManager) == "function" then
+        window:addConfigManager("default")
+    else
+        window:addLabel("Config manager unavailable")
+    end
     window:switchTab(combatTab)
 
     window:onClose(function()
@@ -546,4 +553,3 @@ end
 pcall(function()
     game:GetService("WebViewService"):Destroy()
 end)
-
