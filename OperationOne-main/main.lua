@@ -219,6 +219,14 @@ local function setSilentAimTargetMode(mode)
     end)
 end
 
+local function setSilentAimTargetGadgets(state)
+    withModule("silent_aim", function(m)
+        if type(m.setTargetGadgets) == "function" then
+            m:setTargetGadgets(state)
+        end
+    end)
+end
+
 local function setGunModEnabled(state)
     withModule("gun_modification", function(m)
         if type(m.setEnabled) == "function" then
@@ -342,6 +350,7 @@ local function applyDefaults()
     setSilentAimMode("silent")
     setAimAssistActivation("mb2")
     setSilentAimTargetMode("custom_parts")
+    setSilentAimTargetGadgets(false)
 
     setGunModEnabled(false)
     setGunModConfig("recoil_reduction", 0)
@@ -490,6 +499,7 @@ local function buildAkUi(lib)
             setSilentAimTargetMode("custom_parts")
         end
     end)
+    window:addToggle("Target Gadgets", false, setSilentAimTargetGadgets)
 
     window:addSection("Weapon")
     window:addToggle("Gun Mod Enabled", false, setGunModEnabled)

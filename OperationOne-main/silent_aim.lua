@@ -8,6 +8,7 @@ local Module = {
     _enabled = false,
     _mode = "silent",
     _targetMode = "custom_parts",
+    _targetGadgets = false,
     _aimAssistActivation = "mb2",
     _smoothness = 1,
     _fovRadius = 60,
@@ -22,6 +23,16 @@ local TARGET_PARTS = {
     "head", "torso", "shoulder1", "shoulder2",
     "arm1", "arm2", "hip1", "hip2", "leg1", "leg2",
 }
+
+local GADGET_TARGETS = {
+    Drone = "HumanoidRootPart",
+    Claymore = "Laser",
+    ProximityAlarm = "RedDot",
+    StickyCamera = "Cam",
+    SignalDisruptor = "Screen",
+}
+
+local TEAM_COLOR = Color3.fromRGB(0, 150, 0)
 
 local function clampNumber(v, minV, maxV, defaultV)
     local n = tonumber(v)
@@ -42,6 +53,16 @@ local function toLower(v)
         return ""
     end
     return string.lower(v)
+end
+
+local function isColorMatch(color, expected)
+    if typeof(color) ~= "Color3" or typeof(expected) ~= "Color3" then
+        return false
+    end
+
+    return math.floor(color.R * 255 + 0.5) == math.floor(expected.R * 255 + 0.5)
+        and math.floor(color.G * 255 + 0.5) == math.floor(expected.G * 255 + 0.5)
+        and math.floor(color.B * 255 + 0.5) == math.floor(expected.B * 255 + 0.5)
 end
 
 local function getDebugApi()
@@ -119,35 +140,77 @@ function Module:_checkPart(part, mousePos, closestPart, closestDistSq)
     return closestPart, closestDistSq
 end
 
+function Module:_getViewmodelTeamMap()
+    local viewmodelTeams = {}
+
+    for _, child in ipairs(Workspace:GetChildren()) do
+        if child.ClassName == "Highlight" then
+            local adornee = child.Adornee
+            if adornee and adornee.Name == "Viewmodel" then
+                local isTeammate = isColorMatch(child.FillColor, TEAM_COLOR)
+                    or isColorMatch(child.OutlineColor, TEAM_COLOR)
+                viewmodelTeams[adornee] = isTeammate
+            end
+        end
+    end
+
+    return viewmodelTeams
+end
+
+function Module:_getGadgetTargetPart(model)
+    if not model or not model:IsA("Model") then
+        return nil
+    end
+
+    local partName = GADGET_TARGETS[model.Name]
+    if not partName then
+        return nil
+    end
+
+    return model:FindFirstChild(partName)
+end
+
 function Module:_getClosestTargetToCursor()
     local closestPart = nil
     local closestDistSq = math.huge
     local mousePos = self:_getMousePosition()
+    local viewmodelTeams = self:_getViewmodelTeamMap()
 
     if not self._viewmodelsFolder or not self._viewmodelsFolder.Parent then
         self._viewmodelsFolder = Workspace:FindFirstChild("Viewmodels")
     end
 
     local viewmodelsFolder = self._viewmodelsFolder
-    if not viewmodelsFolder then
-        return nil
+    if viewmodelsFolder then
+        for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
+            if vm.Name == "Viewmodel" then
+                if viewmodelTeams[vm] then
+                    continue
+                end
+
+                local torso = vm:FindFirstChild("torso")
+                if torso and torso.Transparency == 1 then
+                    continue
+                end
+
+                if self._targetMode == "head_only" then
+                    local head = vm:FindFirstChild("head")
+                    closestPart, closestDistSq = self:_checkPart(head, mousePos, closestPart, closestDistSq)
+                else
+                    for _, partName in ipairs(TARGET_PARTS) do
+                        local part = vm:FindFirstChild(partName)
+                        closestPart, closestDistSq = self:_checkPart(part, mousePos, closestPart, closestDistSq)
+                    end
+                end
+            end
+        end
     end
 
-    for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
-        if vm.Name == "Viewmodel" then
-            local torso = vm:FindFirstChild("torso")
-            if torso and torso.Transparency == 1 then
-                continue
-            end
-
-            if self._targetMode == "head_only" then
-                local head = vm:FindFirstChild("head")
-                closestPart, closestDistSq = self:_checkPart(head, mousePos, closestPart, closestDistSq)
-            else
-                for _, partName in ipairs(TARGET_PARTS) do
-                    local part = vm:FindFirstChild(partName)
-                    closestPart, closestDistSq = self:_checkPart(part, mousePos, closestPart, closestDistSq)
-                end
+    if self._targetGadgets then
+        for _, child in ipairs(Workspace:GetChildren()) do
+            local gadgetPart = self:_getGadgetTargetPart(child)
+            if gadgetPart then
+                closestPart, closestDistSq = self:_checkPart(gadgetPart, mousePos, closestPart, closestDistSq)
             end
         end
     end
@@ -400,6 +463,11 @@ function Module:setTargetMode(mode)
     end
 
     self._targetMode = m
+    return true
+end
+
+function Module:setTargetGadgets(state)
+    self._targetGadgets = state == true
     return true
 end
 
