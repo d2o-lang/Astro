@@ -7,6 +7,7 @@ local Module = {
     _initialized = false,
     _enabled = false,
     _mode = "silent",
+    _teamCheck = true,
     _targetMode = "custom_parts",
     _targetGadgets = false,
     _aimAssistActivation = "mb2",
@@ -184,7 +185,7 @@ function Module:_getClosestTargetToCursor()
     if viewmodelsFolder then
         for _, vm in ipairs(viewmodelsFolder:GetChildren()) do
             if vm.Name == "Viewmodel" then
-                if viewmodelTeams[vm] then
+                if self._teamCheck and viewmodelTeams[vm] then
                     continue
                 end
 
@@ -468,6 +469,11 @@ end
 
 function Module:setTargetGadgets(state)
     self._targetGadgets = state == true
+    return true
+end
+
+function Module:setTeamCheck(state)
+    self._teamCheck = state == true
     return true
 end
 

@@ -219,6 +219,14 @@ local function setSilentAimTargetMode(mode)
     end)
 end
 
+local function setSilentAimTeamCheck(state)
+    withModule("silent_aim", function(m)
+        if type(m.setTeamCheck) == "function" then
+            m:setTeamCheck(state)
+        end
+    end)
+end
+
 local function setSilentAimTargetGadgets(state)
     withModule("silent_aim", function(m)
         if type(m.setTargetGadgets) == "function" then
@@ -348,6 +356,7 @@ local function applyDefaults()
     setSilentAimFov(60)
     setSilentAimSmoothness(1)
     setSilentAimMode("silent")
+    setSilentAimTeamCheck(true)
     setAimAssistActivation("mb2")
     setSilentAimTargetMode("custom_parts")
     setSilentAimTargetGadgets(false)
@@ -484,6 +493,7 @@ local function buildAkUi(lib)
     window:switchTab(combatTab)
     window:addSection("Aimbot")
     window:addToggle("Silent/Aimbot", false, setSilentAim)
+    window:addToggle("Aim Team Check", true, setSilentAimTeamCheck)
     window:addSlider("Aim FOV", 10, 400, 60, 1, setSilentAimFov)
     window:addSlider("Aim Assist Smoothness", 0.01, 1, 1, 0.01, setSilentAimSmoothness)
     window:addDropdown("Aim Mode", { "silent", "aim_assist" }, "silent", function(selected)
