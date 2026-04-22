@@ -1,22 +1,22 @@
 pcall(function() setthreadidentity(8) end)
 
 local UILIB_LOCAL_PATH = "ui_lib.lua"
-local UILIB_URL = "https://github.com/PLU3t0/Meathead/raw/refs/heads/main/OperationOne-main/ui_lib.lua"
+local UILIB_URL = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/ui_lib.lua"
 local UILIB_LOCAL_PATHS = {
     UILIB_LOCAL_PATH,
     "OperationOne-main/ui_lib.lua",
     "OperationOne-main\\ui_lib.lua",
 }
-local SHARED_RUNTIME_SOURCE = { local_path = "shared_runtime.lua", url = "https://github.com/PLU3t0/Meathead/raw/refs/heads/main/OperationOne-main/shared_runtime.lua" }
+local SHARED_RUNTIME_SOURCE = { local_path = "shared_runtime.lua", url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/shared_runtime.lua" }
 
 local MODULE_SOURCES = {
     fullbright = {
         local_path = "fullbright.lua",
-        url = "https://github.com/PLU3t0/Meathead/raw/refs/heads/main/OperationOne-main/fullbright.lua",
+        url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/fullbright.lua",
     },
     gun_modification = {
         local_path = "gun_modification.lua",
-        url = "https://github.com/PLU3t0/Meathead/raw/refs/heads/main/OperationOne-main/gun_modification.lua",
+        url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/gun_modification.lua",
     },
     EspLib = {
         local_path = "EspLib.lua",
@@ -24,7 +24,7 @@ local MODULE_SOURCES = {
     },
     silent_aim = {
         local_path = "silent_aim.lua",
-        url = "https://github.com/PLU3t0/Meathead/raw/refs/heads/main/OperationOne-main/silent_aim.lua",
+        url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/silent_aim.lua",
     },
     yenofurry = {
         local_path = "yenofurry.lua",
