@@ -1,7 +1,7 @@
 pcall(function() setthreadidentity(8) end)
 
 local UILIB_LOCAL_PATH = "ui_lib.lua"
-local UILIB_URL = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/ui_lib.lua"
+local UILIB_URL = "https://github.com/PLU3t0/Meathead/raw/refs/heads/main/OperationOne-main/ui_lib.lua"
 local UILIB_LOCAL_PATHS = {
     UILIB_LOCAL_PATH,
     "OperationOne-main/ui_lib.lua",
