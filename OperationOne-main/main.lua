@@ -28,6 +28,8 @@ local MODULE_SOURCES = {
     },
 }
 
+
+
 local moduleCache = {}
 local sharedRuntimeCache = nil
 local ESP_MODULE_NAME = "EspLib"
@@ -742,7 +744,7 @@ local function applyDefaults()
 end
 
 local function runStartupInit()
-    local initOrder = { "silent_aim", "gun_modification", ESP_MODULE_NAME, "fullbright"}
+    local initOrder = { "silent_aim", "gun_modification", ESP_MODULE_NAME, "fullbright"f}
     for _, name in ipairs(initOrder) do
         initModule(name, false)
     end
@@ -809,14 +811,14 @@ local function buildAkUi(lib)
         error("ui_lib.lua does not expose .new")
     end
 
-    local window = lib.new("Op1NIGGAs", Enum.KeyCode.RightShift)
+    local window = lib.new("ASTRO.WTF", Enum.KeyCode.RightShift)
     window._userResized = true
     window._manualWidth = 400
     window._manualHeight = 200
     window.mainFrame.Size = UDim2.new(0, 400, 0, 200)
     window:_updateScroll()
     if type(window.setConfigFolder) == "function" then
-        window:setConfigFolder("FURRY KILLER CONFIG")
+        window:setConfigFolder("ASTROConfigs")
     end
 
 
@@ -969,14 +971,32 @@ end
 
 local lib, libErr = loadUiLibrary()
 if lib then
+    local loadingOverlay = nil
+    if type(lib.showLoadingOverlay) == "function" then
+        loadingOverlay = lib.showLoadingOverlay("Waiting for initialized for ASTRO.WTF, please wait...")
+        if loadingOverlay and type(loadingOverlay.setText) == "function" then
+            loadingOverlay.setText("Initializing ASTRO.WTF, please wait...")
+        end
+    end
+
     local okInit, initErr = pcall(runStartupInit)
     if not okInit then
         log("startup init failed -> " .. tostring(initErr))
+        if loadingOverlay and type(loadingOverlay.setText) == "function" then
+            loadingOverlay.setText("Initialization failed for ASTRO.WTF.")
+        end
+    elseif loadingOverlay and type(loadingOverlay.setText) == "function" then
+        loadingOverlay.setText("Initialization complete. Building ASTRO.WTF UI...")
     end
 
     local ok, err = pcall(buildAkUi, lib)
     if not ok then
         log("failed -> " .. tostring(err))
+        if loadingOverlay and type(loadingOverlay.setText) == "function" then
+            loadingOverlay.setText("Failed to build ASTRO.WTF UI.")
+        end
+    elseif loadingOverlay and type(loadingOverlay.dismiss) == "function" then
+        loadingOverlay.dismiss()
     end
 else
     log("failed -> " .. tostring(libErr))
