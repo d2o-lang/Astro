@@ -26,10 +26,6 @@ local MODULE_SOURCES = {
         local_path = "silent_aim.lua",
         url = "https://github.com/d2o-lang/Astro/raw/refs/heads/main/OperationOne-main/silent_aim.lua",
     },
-    yenofurry = {
-        local_path = "yenofurry.lua",
-        url = "https://github.com/d2o-lang/UILib/raw/refs/heads/main/yenofurry.lua",
-    },
 }
 
 local moduleCache = {}
@@ -746,7 +742,7 @@ local function applyDefaults()
 end
 
 local function runStartupInit()
-    local initOrder = { "silent_aim", "gun_modification", ESP_MODULE_NAME, "fullbright", "yenofurry" }
+    local initOrder = { "silent_aim", "gun_modification", ESP_MODULE_NAME, "fullbright"}
     for _, name in ipairs(initOrder) do
         initModule(name, false)
     end
